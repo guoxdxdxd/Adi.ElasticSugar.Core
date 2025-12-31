@@ -1,0 +1,12 @@
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.csproj.AssemblyReference.cache
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.GeneratedMSBuildEditorConfig.editorconfig
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.AssemblyInfoInputs.cache
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.AssemblyInfo.cs
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.csproj.CoreCompileInputs.cache
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/bin/Debug/net8.0/Adi.ElasticSugar.Core.deps.json
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/bin/Debug/net8.0/Adi.ElasticSugar.Core.dll
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/bin/Debug/net8.0/Adi.ElasticSugar.Core.pdb
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.dll
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/refint/Adi.ElasticSugar.Core.dll
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/Adi.ElasticSugar.Core.pdb
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net8.0/ref/Adi.ElasticSugar.Core.dll
