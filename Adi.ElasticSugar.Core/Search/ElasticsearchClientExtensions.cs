@@ -1,6 +1,6 @@
 using Elastic.Clients.Elasticsearch;
 
-namespace Adi.ElasticSugar.Core;
+namespace Adi.ElasticSugar.Core.Search;
 
 /// <summary>
 /// ElasticsearchClient 扩展方法

@@ -2,7 +2,7 @@ using System.Linq.Expressions;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 
-namespace Adi.ElasticSugar.Core;
+namespace Adi.ElasticSugar.Core.Search;
 
 /// <summary>
 /// ElasticSearch 查询构建器，类似数据库 ORM 的 IQueryable

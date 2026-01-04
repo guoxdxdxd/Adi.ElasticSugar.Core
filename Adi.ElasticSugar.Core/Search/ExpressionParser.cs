@@ -4,7 +4,7 @@ using System.Reflection;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using static Elastic.Clients.Elasticsearch.FieldValue;
 
-namespace Adi.ElasticSugar.Core;
+namespace Adi.ElasticSugar.Core.Search;
 
 /// <summary>
 /// 表达式树解析器

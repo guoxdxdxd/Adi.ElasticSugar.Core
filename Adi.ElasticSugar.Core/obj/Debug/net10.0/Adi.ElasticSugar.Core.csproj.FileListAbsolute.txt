@@ -10,3 +10,4 @@
 /Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net10.0/refint/Adi.ElasticSugar.Core.dll
 /Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net10.0/Adi.ElasticSugar.Core.pdb
 /Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net10.0/ref/Adi.ElasticSugar.Core.dll
+/Users/guoxiongdi/Projects/My/Adi.ElasticSugar.Core/Adi.ElasticSugar.Core/obj/Debug/net10.0/Adi.ElasticSugar.Core.sourcelink.json
