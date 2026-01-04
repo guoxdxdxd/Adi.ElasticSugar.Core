@@ -1,3 +1,5 @@
+using Adi.ElasticSugar.Core.Index;
+using Adi.ElasticSugar.Core.Models;
 using Elastic.Clients.Elasticsearch;
 
 namespace Adi.ElasticSugar.Core.Search;
@@ -8,6 +10,29 @@ namespace Adi.ElasticSugar.Core.Search;
 /// </summary>
 public static class ElasticsearchClientExtensions
 {
+    /// <summary>
+    /// 创建搜索查询构建器
+    /// 根据泛型类型 T 的 EsIndexAttribute 特性自动获取索引名称
+    /// 如果类型 T 继承自 BaseEsModel 且包含 EsIndexAttribute 特性，将自动生成索引通配符模式（如 "orders-*"）
+    /// 用于查询所有相关索引
+    /// </summary>
+    /// <typeparam name="T">文档类型，必须继承自 BaseEsModel 且包含 EsIndexAttribute 特性</typeparam>
+    /// <param name="client">Elasticsearch 客户端</param>
+    /// <returns>搜索查询构建器</returns>
+    /// <exception cref="InvalidOperationException">当类型 T 不继承自 BaseEsModel 时抛出</exception>
+    public static EsSearchQueryable<T> Search<T>(this ElasticsearchClient client) where T : BaseEsModel
+    {
+        if (client == null)
+        {
+            throw new ArgumentNullException(nameof(client));
+        }
+
+        // 从泛型类型 T 的特性中获取索引通配符模式
+        // 使用通配符模式可以查询所有相关索引（如 orders-2024-01, orders-2024-02 等）
+        var indexPattern = IndexNameGenerator.GenerateIndexPatternFromAttribute<T>();
+        return new EsSearchQueryable<T>(client, indexPattern);
+    }
+
     /// <summary>
     /// 创建搜索查询构建器
     /// 类似 SqlSugar 的 AsQueryable，但直接指定索引
