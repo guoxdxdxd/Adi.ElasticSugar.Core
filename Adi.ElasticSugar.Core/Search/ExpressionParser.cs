@@ -15,6 +15,9 @@ public static class ExpressionParser
 {
     /// <summary>
     /// 解析表达式并转换为查询动作
+    /// 使用 DNF（析取范式）格式处理表达式：(a&&b&&c)||(d&&e&&f)||(g.h&&i)
+    /// 顶层是 OR 关系，每个 OR 分支是一个 AND 条件组
+    /// 相同嵌套路径的条件会合并到同一个 nested 查询中
     /// </summary>
     public static Action<QueryDescriptor<T>>? ParseExpression<T>(Expression<Func<T, bool>> expression)
     {
@@ -23,7 +26,16 @@ public static class ExpressionParser
             return null;
         }
 
-        return ParseNode<T>(expression.Body);
+        // 步骤1：将表达式转换为 DNF 格式
+        var dnfExpression = ConvertToDnf<T>(expression.Body);
+        
+        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        {
+            return null;
+        }
+        
+        // 步骤2：生成查询
+        return BuildQueryFromDnf<T>(dnfExpression);
     }
 
     /// <summary>
@@ -58,10 +70,10 @@ public static class ExpressionParser
     {
         return binary.NodeType switch
         {
-            // 逻辑 AND
+            // 逻辑 AND - 使用 DNF 格式处理
             ExpressionType.AndAlso => ParseAndExpression<T>(binary),
             
-            // 逻辑 OR
+            // 逻辑 OR - 使用 DNF 格式处理
             ExpressionType.OrElse => ParseOrExpression<T>(binary),
             
             // 等于
@@ -88,61 +100,40 @@ public static class ExpressionParser
 
     /// <summary>
     /// 解析 AND 表达式
-    /// 将左右两个查询条件组合成 Bool.Must 查询
-    /// 注意：每个 action 都会创建一个独立的查询，然后通过 Bool.Must 组合
+    /// 使用 DNF 格式处理，确保相同嵌套路径的条件合并到同一个 nested 查询中
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseAndExpression<T>(BinaryExpression binary)
     {
-        var left = ParseNode<T>(binary.Left);
-        var right = ParseNode<T>(binary.Right);
-
-        if (left == null && right == null)
+        // 将表达式转换为 DNF 格式
+        var dnfExpression = ConvertToDnf<T>(binary);
+        
+        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
         {
             return null;
         }
-
-        if (left == null)
-        {
-            return right;
-        }
-
-        if (right == null)
-        {
-            return left;
-        }
-
-        // 组合成 Bool.Must 查询
-        // 每个 action 会创建一个查询，然后通过 Bool.Must 组合
-        // 这样可以正确处理嵌套查询和普通查询的组合
-        return q => q.Bool(b => b.Must(new[] { left, right }));
+        
+        // 生成查询
+        return BuildQueryFromDnf<T>(dnfExpression);
     }
 
     /// <summary>
     /// 解析 OR 表达式
+    /// 使用 DNF 格式处理，确保相同嵌套路径的条件合并到同一个 nested 查询中
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseOrExpression<T>(BinaryExpression binary)
     {
-        var left = ParseNode<T>(binary.Left);
-        var right = ParseNode<T>(binary.Right);
-
-        if (left == null && right == null)
+        // 将表达式转换为 DNF 格式
+        var dnfExpression = ConvertToDnf<T>(binary);
+        
+        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
         {
             return null;
         }
-
-        if (left == null)
-        {
-            return right;
-        }
-
-        if (right == null)
-        {
-            return left;
-        }
-
-        // 组合成 Bool.Should 查询
-        return q => q.Bool(b => b.Should(new[] { left, right }));
+        
+        // 生成查询
+        return BuildQueryFromDnf<T>(dnfExpression);
     }
+
 
     /// <summary>
     /// 解析比较表达式（等于、不等于、大于、小于、大于等于、小于等于）
@@ -1018,6 +1009,539 @@ public static class ExpressionParser
     }
 
     /// <summary>
+    /// 将表达式转换为 DNF（析取范式）格式
+    /// DNF 格式：(a&&b&&c)||(d&&e&&f)||(g.h&&i)
+    /// 顶层是 OR 关系（OrGroups），每个 OR 分支是一个 AND 条件组（AndConditions）
+    /// </summary>
+    private static DnfExpression<T>? ConvertToDnf<T>(Expression expression)
+    {
+        // 处理类型转换
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return ConvertToDnf<T>(unary.Operand);
+        }
+
+        // 处理二元表达式
+        if (expression is BinaryExpression binary)
+        {
+            return binary.NodeType switch
+            {
+                // OR 运算符：合并左右两边的 OR 组
+                ExpressionType.OrElse => MergeOrGroups<T>(
+                    ConvertToDnf<T>(binary.Left),
+                    ConvertToDnf<T>(binary.Right)
+                ),
+                
+                // AND 运算符：交叉组合左右两边的条件
+                ExpressionType.AndAlso => MergeAndConditions<T>(
+                    ConvertToDnf<T>(binary.Left),
+                    ConvertToDnf<T>(binary.Right)
+                ),
+                
+                // 其他二元运算符（比较运算符）作为原子条件
+                _ => CreateAtomicDnf<T>(expression)
+            };
+        }
+
+        // 处理其他表达式类型（方法调用、成员访问等）作为原子条件
+        return CreateAtomicDnf<T>(expression);
+    }
+
+    /// <summary>
+    /// 合并两个 DNF 表达式的 OR 组
+    /// (A||B) || (C||D) = (A||B||C||D)
+    /// </summary>
+    private static DnfExpression<T> MergeOrGroups<T>(DnfExpression<T>? left, DnfExpression<T>? right)
+    {
+        var result = new DnfExpression<T>();
+        
+        if (left != null && left.OrGroups.Count > 0)
+        {
+            result.OrGroups.AddRange(left.OrGroups);
+        }
+        
+        if (right != null && right.OrGroups.Count > 0)
+        {
+            result.OrGroups.AddRange(right.OrGroups);
+        }
+        
+        // 如果两边都为空，返回 null
+        if (result.OrGroups.Count == 0)
+        {
+            return left ?? right ?? new DnfExpression<T>();
+        }
+        
+        return result;
+    }
+
+    /// <summary>
+    /// 合并两个 DNF 表达式的 AND 条件
+    /// (A||B) && (C||D) = (A&&C)||(A&&D)||(B&&C)||(B&&D)
+    /// </summary>
+    private static DnfExpression<T> MergeAndConditions<T>(DnfExpression<T>? left, DnfExpression<T>? right)
+    {
+        var result = new DnfExpression<T>();
+        
+        // 如果左边为空，返回右边
+        if (left == null || left.OrGroups.Count == 0)
+        {
+            return right ?? new DnfExpression<T>();
+        }
+        
+        // 如果右边为空，返回左边
+        if (right == null || right.OrGroups.Count == 0)
+        {
+            return left;
+        }
+        
+        // 交叉组合：每个左边的 OR 组与每个右边的 OR 组组合
+        foreach (var leftGroup in left.OrGroups)
+        {
+            foreach (var rightGroup in right.OrGroups)
+            {
+                // 合并两个 AND 条件组
+                var mergedGroup = new AndConditionGroup<T>();
+                mergedGroup.Conditions.AddRange(leftGroup.Conditions);
+                mergedGroup.Conditions.AddRange(rightGroup.Conditions);
+                result.OrGroups.Add(mergedGroup);
+            }
+        }
+        
+        return result;
+    }
+
+    /// <summary>
+    /// 创建原子条件的 DNF 表达式
+    /// 原子条件（如 x.Field == value）转换为 DNF 格式：只有一个 OR 组，该组只有一个 AND 条件
+    /// </summary>
+    private static DnfExpression<T>? CreateAtomicDnf<T>(Expression expression)
+    {
+        // 尝试解析为查询条件
+        var condition = ParseAtomicCondition<T>(expression);
+        if (condition == null)
+        {
+            return null;
+        }
+        
+        // 创建 DNF 表达式：一个 OR 组包含一个 AND 条件
+        var result = new DnfExpression<T>();
+        var group = new AndConditionGroup<T>();
+        group.Conditions.Add(condition);
+        result.OrGroups.Add(group);
+        
+        return result;
+    }
+
+    /// <summary>
+    /// 解析原子条件（比较表达式、方法调用等）
+    /// </summary>
+    private static QueryCondition<T>? ParseAtomicCondition<T>(Expression expression)
+    {
+        // 处理类型转换
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return ParseAtomicCondition<T>(unary.Operand);
+        }
+
+        // 处理比较表达式
+        if (expression is BinaryExpression binary && IsComparisonOperator(binary.NodeType))
+        {
+            var comparisonType = GetComparisonType(binary.NodeType);
+            if (comparisonType == null)
+            {
+                return null;
+            }
+            
+            var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(binary.Left, binary.Right);
+            if (string.IsNullOrEmpty(fieldPath) || value == null)
+            {
+                return null;
+            }
+            
+            // 对于精确匹配，需要判断是否使用 keyword
+            var finalFieldPath = comparisonType == ComparisonType.Equals || comparisonType == ComparisonType.NotEquals
+                ? GetFieldPathForExactMatch(fieldPath, lastProperty)
+                : GetFieldPathForRangeQuery(fieldPath, lastProperty, value);
+            
+            return new QueryCondition<T>
+            {
+                FieldPath = finalFieldPath,
+                NestedPath = nestedPath,
+                ComparisonType = comparisonType.Value,
+                Value = value,
+                ConditionType = ConditionType.Comparison
+            };
+        }
+
+        // 处理方法调用（Contains, StartsWith, EndsWith 等）
+        if (expression is MethodCallExpression methodCall)
+        {
+            return ParseMethodCallCondition<T>(methodCall);
+        }
+
+        // 处理成员访问（布尔字段的直接引用）
+        if (expression is MemberExpression member)
+        {
+            return ParseMemberCondition<T>(member);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 解析方法调用条件
+    /// </summary>
+    private static QueryCondition<T>? ParseMethodCallCondition<T>(MethodCallExpression methodCall)
+    {
+        var methodName = methodCall.Method.Name;
+        
+        if (methodName == "Contains")
+        {
+            if (methodCall.Object != null)
+            {
+                // 形式1：field.Contains(value)
+                var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+                if (!string.IsNullOrEmpty(fieldPath) && value != null)
+                {
+                    return new QueryCondition<T>
+                    {
+                        FieldPath = fieldPath,
+                        NestedPath = nestedPath,
+                        Value = value,
+                        ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.Match,
+                        WildcardPattern = IsKeywordField(lastProperty) ? $"*{value}*" : null,
+                        MatchText = IsKeywordField(lastProperty) ? null : value.ToString()
+                    };
+                }
+            }
+            else if (methodCall.Arguments.Count == 2)
+            {
+                // 形式2：collection.Contains(field)
+                var collection = EvaluateExpression(methodCall.Arguments[0]);
+                var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(methodCall.Arguments[1]);
+                
+                if (!string.IsNullOrEmpty(fieldPath) && collection is IEnumerable enumerable)
+                {
+                    var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    return new QueryCondition<T>
+                    {
+                        FieldPath = finalFieldPath,
+                        NestedPath = nestedPath,
+                        Value = enumerable,
+                        ConditionType = ConditionType.Terms
+                    };
+                }
+            }
+        }
+        else if (methodName == "StartsWith")
+        {
+            if (methodCall.Object != null && methodCall.Arguments.Count > 0)
+            {
+                var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+                if (!string.IsNullOrEmpty(fieldPath) && value != null)
+                {
+                    return new QueryCondition<T>
+                    {
+                        FieldPath = fieldPath,
+                        NestedPath = nestedPath,
+                        Value = value,
+                        ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.MatchPhrasePrefix,
+                        WildcardPattern = IsKeywordField(lastProperty) ? $"{value}*" : null,
+                        MatchText = IsKeywordField(lastProperty) ? null : value.ToString()
+                    };
+                }
+            }
+        }
+        else if (methodName == "EndsWith")
+        {
+            if (methodCall.Object != null && methodCall.Arguments.Count > 0)
+            {
+                var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+                if (!string.IsNullOrEmpty(fieldPath) && value != null)
+                {
+                    var finalFieldPath = IsKeywordField(lastProperty) 
+                        ? fieldPath 
+                        : GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    return new QueryCondition<T>
+                    {
+                        FieldPath = finalFieldPath,
+                        NestedPath = nestedPath,
+                        Value = value,
+                        ConditionType = ConditionType.Wildcard,
+                        WildcardPattern = $"*{value}"
+                    };
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /// <summary>
+    /// 解析成员访问条件（布尔字段的直接引用）
+    /// </summary>
+    private static QueryCondition<T>? ParseMemberCondition<T>(MemberExpression member)
+    {
+        Type? memberType = null;
+        
+        if (member.Member is PropertyInfo propertyInfo)
+        {
+            memberType = propertyInfo.PropertyType;
+        }
+        else if (member.Member is FieldInfo fieldInfo)
+        {
+            memberType = fieldInfo.FieldType;
+        }
+
+        if (memberType == null)
+        {
+            return null;
+        }
+
+        // 处理可空布尔类型
+        var underlyingType = memberType;
+        if (memberType.IsGenericType && memberType.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            underlyingType = memberType.GetGenericArguments()[0];
+        }
+
+        // 只有布尔类型才支持直接引用
+        if (underlyingType != typeof(bool))
+        {
+            return null;
+        }
+
+        var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(member);
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return null;
+        }
+
+        return new QueryCondition<T>
+        {
+            FieldPath = fieldPath,
+            NestedPath = nestedPath,
+            ComparisonType = ComparisonType.Equals,
+            Value = true,
+            ConditionType = ConditionType.Comparison
+        };
+    }
+
+    /// <summary>
+    /// 判断是否为比较运算符
+    /// </summary>
+    private static bool IsComparisonOperator(ExpressionType nodeType)
+    {
+        return nodeType == ExpressionType.Equal ||
+               nodeType == ExpressionType.NotEqual ||
+               nodeType == ExpressionType.GreaterThan ||
+               nodeType == ExpressionType.GreaterThanOrEqual ||
+               nodeType == ExpressionType.LessThan ||
+               nodeType == ExpressionType.LessThanOrEqual;
+    }
+
+    /// <summary>
+    /// 获取比较类型
+    /// </summary>
+    private static ComparisonType? GetComparisonType(ExpressionType nodeType)
+    {
+        return nodeType switch
+        {
+            ExpressionType.Equal => ComparisonType.Equals,
+            ExpressionType.NotEqual => ComparisonType.NotEquals,
+            ExpressionType.GreaterThan => ComparisonType.GreaterThan,
+            ExpressionType.GreaterThanOrEqual => ComparisonType.GreaterThanOrEqual,
+            ExpressionType.LessThan => ComparisonType.LessThan,
+            ExpressionType.LessThanOrEqual => ComparisonType.LessThanOrEqual,
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// 从 DNF 表达式生成查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromDnf<T>(DnfExpression<T> dnf)
+    {
+        if (dnf.OrGroups.Count == 0)
+        {
+            return _ => { };
+        }
+
+        // 如果只有一个 OR 组，直接生成该组的查询
+        if (dnf.OrGroups.Count == 1)
+        {
+            return BuildAndGroupQuery<T>(dnf.OrGroups[0]);
+        }
+
+        // 多个 OR 组，使用 Bool.Should 组合
+        var shouldActions = dnf.OrGroups
+            .Select(group => BuildAndGroupQuery<T>(group))
+            .ToArray();
+
+        return query => query.Bool(b => b.Should(shouldActions));
+    }
+
+    /// <summary>
+    /// 生成 AND 条件组的查询
+    /// 对于相同嵌套路径的条件，会合并到同一个 nested 查询中
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildAndGroupQuery<T>(AndConditionGroup<T> group)
+    {
+        if (group.Conditions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        // 如果只有一个条件，直接生成该条件的查询
+        if (group.Conditions.Count == 1)
+        {
+            return BuildConditionQuery<T>(group.Conditions[0]);
+        }
+
+        // 按嵌套路径分组条件
+        var nestedGroups = group.Conditions
+            .Where(c => !string.IsNullOrEmpty(c.NestedPath))
+            .GroupBy(c => c.NestedPath!)
+            .ToList();
+
+        var regularConditions = group.Conditions
+            .Where(c => string.IsNullOrEmpty(c.NestedPath))
+            .ToList();
+
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+
+        // 处理嵌套查询：相同嵌套路径的条件合并到一个 nested 查询中
+        foreach (var nestedGroup in nestedGroups)
+        {
+            var nestedPath = nestedGroup.Key;
+            var conditions = nestedGroup.ToList();
+
+            if (conditions.Count == 1)
+            {
+                // 只有一个条件，直接生成嵌套查询
+                var condition = conditions[0];
+                queryActions.Add(query =>
+                {
+                    var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
+                    query.Nested(n => n
+                        .Path(nestedPath)
+                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                    );
+                });
+            }
+            else
+            {
+                // 多个条件，合并到同一个 nested 查询中
+                queryActions.Add(query =>
+                {
+                    query.Nested(n => n
+                        .Path(nestedPath)
+                        .Query(nq =>
+                        {
+                            var nestedQueryActions = conditions.Select(condition =>
+                            {
+                                var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
+                                return new Action<QueryDescriptor<T>>(nq2 => ApplyConditionToQuery(nq2, fullFieldPath, condition));
+                            }).ToArray();
+
+                            if (nestedQueryActions.Length == 1)
+                            {
+                                nestedQueryActions[0](nq);
+                            }
+                            else
+                            {
+                                nq.Bool(b => b.Must(nestedQueryActions));
+                            }
+                        })
+                    );
+                });
+            }
+        }
+
+        // 处理普通查询（非嵌套）
+        foreach (var condition in regularConditions)
+        {
+            queryActions.Add(BuildConditionQuery<T>(condition));
+        }
+
+        // 组合所有查询
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Must(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 生成单个条件的查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildConditionQuery<T>(QueryCondition<T> condition)
+    {
+        if (!string.IsNullOrEmpty(condition.NestedPath))
+        {
+            // 嵌套查询
+            var fullFieldPath = $"{condition.NestedPath}.{condition.FieldPath}";
+            return query =>
+            {
+                query.Nested(n => n
+                    .Path(condition.NestedPath)
+                    .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                );
+            };
+        }
+        else
+        {
+            // 普通查询
+            return query => ApplyConditionToQuery(query, condition.FieldPath, condition);
+        }
+    }
+
+    /// <summary>
+    /// 应用条件到查询描述符
+    /// </summary>
+    private static void ApplyConditionToQuery<T>(QueryDescriptor<T> query, string fieldPath, QueryCondition<T> condition)
+    {
+        switch (condition.ConditionType)
+        {
+            case ConditionType.Comparison:
+                ApplyComparisonToQuery(query, fieldPath, condition.ComparisonType!.Value, condition.Value!);
+                break;
+
+            case ConditionType.Match:
+                query.Match(m => m.Field(fieldPath).Query(condition.MatchText ?? string.Empty));
+                break;
+
+            case ConditionType.MatchPhrasePrefix:
+                query.MatchPhrasePrefix(m => m.Field(fieldPath).Query(condition.MatchText ?? string.Empty));
+                break;
+
+            case ConditionType.Wildcard:
+                query.Wildcard(w => w.Field(fieldPath).Value(condition.WildcardPattern ?? string.Empty));
+                break;
+
+            case ConditionType.Terms:
+                if (condition.Value is IEnumerable enumerable)
+                {
+                    var valueList = enumerable.Cast<object>().ToList();
+                    if (valueList.Any())
+                    {
+                        var fieldValues = ConvertToFieldValues(valueList);
+                        var termsQueryField = new TermsQueryField(fieldValues);
+                        // 使用 Values 方法而不是 Terms 方法
+                        query.Terms(ts => ts.Field(fieldPath).Terms(termsQueryField));
+                    }
+                }
+                break;
+        }
+    }
+
+    /// <summary>
     /// 将 PascalCase 转换为 camelCase
     /// 例如：NullableBoolField -> nullableBoolField
     /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
@@ -1098,6 +1622,85 @@ internal enum ComparisonType
     GreaterThanOrEqual,
     LessThan,
     LessThanOrEqual
+}
+
+/// <summary>
+/// 条件类型枚举
+/// </summary>
+internal enum ConditionType
+{
+    Comparison,          // 比较查询（==, !=, >, <, >=, <=）
+    Match,               // Match 查询（用于 text 类型字段）
+    MatchPhrasePrefix,   // Match Phrase Prefix 查询（用于 StartsWith）
+    Wildcard,            // Wildcard 查询（用于 Contains、EndsWith）
+    Terms                // Terms 查询（用于 In 查询）
+}
+
+/// <summary>
+/// DNF（析取范式）表达式
+/// 格式：(a&&b&&c)||(d&&e&&f)||(g.h&&i)
+/// 顶层是 OR 关系（OrGroups），每个 OR 分支是一个 AND 条件组（AndConditions）
+/// </summary>
+internal class DnfExpression<T>
+{
+    /// <summary>
+    /// OR 组列表，每个组是一个 AND 条件组
+    /// </summary>
+    public List<AndConditionGroup<T>> OrGroups { get; } = new();
+}
+
+/// <summary>
+/// AND 条件组
+/// 包含多个通过 AND 连接的查询条件
+/// </summary>
+internal class AndConditionGroup<T>
+{
+    /// <summary>
+    /// AND 条件列表
+    /// </summary>
+    public List<QueryCondition<T>> Conditions { get; } = new();
+}
+
+/// <summary>
+/// 查询条件
+/// 表示一个原子查询条件（如 x.Field == value, x.Field.Contains("text") 等）
+/// </summary>
+internal class QueryCondition<T>
+{
+    /// <summary>
+    /// 字段路径（相对于嵌套路径，如果存在嵌套路径）
+    /// </summary>
+    public string FieldPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 嵌套路径（如果字段在嵌套文档中）
+    /// </summary>
+    public string? NestedPath { get; set; }
+
+    /// <summary>
+    /// 比较类型（仅用于比较查询）
+    /// </summary>
+    public ComparisonType? ComparisonType { get; set; }
+
+    /// <summary>
+    /// 条件值
+    /// </summary>
+    public object? Value { get; set; }
+
+    /// <summary>
+    /// 条件类型
+    /// </summary>
+    public ConditionType ConditionType { get; set; }
+
+    /// <summary>
+    /// Wildcard 模式（用于 Wildcard 查询）
+    /// </summary>
+    public string? WildcardPattern { get; set; }
+
+    /// <summary>
+    /// Match 文本（用于 Match 和 MatchPhrasePrefix 查询）
+    /// </summary>
+    public string? MatchText { get; set; }
 }
 
 
