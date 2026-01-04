@@ -7,7 +7,7 @@ namespace Adi.ElasticSugar.Core.Index;
 /// 格式：{prefix}-{yyyy-MM}
 /// 例如：orders-2024-01
 /// </summary>
-/// <typeparam name="T">文档类型，必须继承 BaseEsModel</typeparam>
+/// <typeparam name="T">文档类型，必须继承 BaseEsModel</typeparam> 
 public class YearMonthIndexNameGenerator<T> : IIndexNameGenerator<T> where T : BaseEsModel
 {
     private readonly string _prefix;
