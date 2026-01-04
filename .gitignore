@@ -78,3 +78,11 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Elasticsearch 配置文件（包含敏感信息）
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/appsettings.Local.json
+**/appsettings.*.json
+# 测试项目的配置文件（包含真实密码）
+Adi.ElasticSugar.Core.Tests/appsettings.json
+

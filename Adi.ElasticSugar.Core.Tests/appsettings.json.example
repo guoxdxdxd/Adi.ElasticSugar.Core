@@ -1,0 +1,11 @@
+{
+  "Elasticsearch": {
+    "Name": "MonitorData",
+    "Uris": [
+      "https://your-elasticsearch-host:9200"
+    ],
+    "UserName": "your_username",
+    "Password": "your_password"
+  }
+}
+

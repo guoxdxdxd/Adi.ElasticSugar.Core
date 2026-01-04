@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("ElasticSearch LINQ 查询构建器，类似 SqlSugar 的 ORM 风格")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4247b266b61b445b9e8cb86c8181052b0a7b08c1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6f7f12b69e6c80d58a8cb7f9c51eb0c48cdd4575")]
 [assembly: System.Reflection.AssemblyProductAttribute("Adi.ElasticSugar.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Adi.ElasticSugar.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

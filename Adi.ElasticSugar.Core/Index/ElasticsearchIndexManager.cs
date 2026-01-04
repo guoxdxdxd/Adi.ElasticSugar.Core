@@ -29,14 +29,12 @@ public class ElasticsearchIndexManager
     /// </summary>
     /// <typeparam name="T">文档类型，必须继承 BaseEsModel</typeparam>
     /// <param name="indexName">索引名称</param>
-    /// <param name="configure">可选的映射配置委托，用于手动配置特定字段</param>
     /// <param name="numberOfShards">分片数量，默认 3</param>
     /// <param name="numberOfReplicas">副本数量，默认 1</param>
     /// <returns>如果索引已存在或创建成功返回 true，否则返回 false</returns>
     /// <exception cref="Exception">当检查索引存在性或创建索引失败时抛出异常</exception>
     public async Task<bool> CreateIndexIfNotExistsAsync<T>(
         string indexName,
-        Action<PropertiesDescriptor<T>>? configure = null,
         int numberOfShards = 3,
         int numberOfReplicas = 1) where T : BaseEsModel
     {
@@ -45,30 +43,19 @@ public class ElasticsearchIndexManager
             throw new ArgumentException("索引名称不能为空", nameof(indexName));
         }
 
-        // 检查缓存
-        if (_indexCache.TryGetValue(indexName, out var exists) && exists)
+        // 复用 IndexExistsAsync 方法检查索引是否存在（包含缓存检查和实际索引检查）
+        if (await IndexExistsAsync(indexName))
         {
             return true;
         }
 
+        // 如果索引不存在，使用锁保证线程安全地创建索引
         lock (_lockObject)
         {
-            // 双重检查
-            if (_indexCache.TryGetValue(indexName, out exists) && exists)
+            // 双重检查：在锁内再次检查索引是否存在（可能其他线程已经创建了）
+            // 复用 IndexExistsAsync 的同步检查逻辑（仅检查缓存，因为上面已经检查过实际索引）
+            if (_indexCache.TryGetValue(indexName, out var exists) && exists)
             {
-                return true;
-            }
-
-            // 检查索引是否存在
-            var existsResponse = _client.Indices.Exists(indexName);
-            if (!existsResponse.IsSuccess())
-            {
-                throw new Exception($"检查索引是否存在失败: {indexName}, {existsResponse.DebugInformation}");
-            }
-
-            if (existsResponse.Exists)
-            {
-                _indexCache.TryAdd(indexName, true);
                 return true;
             }
 
@@ -78,9 +65,6 @@ public class ElasticsearchIndexManager
                 {
                     // 先应用自动映射
                     IndexMappingBuilder.BuildMapping(p);
-
-                    // 然后应用手动配置（如果有）
-                    configure?.Invoke(p);
                 }))
                 .Settings(s => s
                     .NumberOfShards(numberOfShards)

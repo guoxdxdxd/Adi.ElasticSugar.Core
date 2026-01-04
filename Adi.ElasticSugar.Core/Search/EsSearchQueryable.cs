@@ -1,4 +1,6 @@
 using System.Linq.Expressions;
+using System.Reflection;
+using Adi.ElasticSugar.Core.Models;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 
@@ -165,17 +167,18 @@ public class EsSearchQueryable<T>
             {
                 foreach (var (field, descending) in _orderByExpressions)
                 {
-                    var fieldPath = ExtractFieldPath(field);
+                    var (fieldPath, propertyInfo) = ExtractFieldPathWithProperty(field);
                     if (!string.IsNullOrEmpty(fieldPath))
                     {
-                        var path = fieldPath; // 避免空引用警告
+                        // 排序需要使用精确匹配字段（对于字符串类型的 text 字段，需要使用 .keyword）
+                        var finalFieldPath = ExpressionParser.GetFieldPathForExactMatch(fieldPath, propertyInfo);
                         if (descending)
                         {
-                            sort.Field(path, fs => fs.Order(SortOrder.Desc));
+                            sort.Field(finalFieldPath, fs => fs.Order(SortOrder.Desc));
                         }
                         else
                         {
-                            sort.Field(path, fs => fs.Order(SortOrder.Asc));
+                            sort.Field(finalFieldPath, fs => fs.Order(SortOrder.Asc));
                         }
                     }
                 }
@@ -240,26 +243,46 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
-    /// 从 Lambda 表达式中提取字段路径
+    /// 从 Lambda 表达式中提取字段路径和 PropertyInfo
     /// </summary>
-    private string? ExtractFieldPath(Expression<Func<T, object>> expression)
+    private (string? fieldPath, PropertyInfo? propertyInfo) ExtractFieldPathWithProperty(Expression<Func<T, object>> expression)
     {
         var memberExpression = GetMemberExpression(expression.Body);
         if (memberExpression == null)
         {
-            return null;
+            return (null, null);
         }
 
         var path = new List<string>();
+        var properties = new List<PropertyInfo>();
         var current = (Expression?)memberExpression;
 
         while (current is MemberExpression member)
         {
             path.Insert(0, member.Member.Name);
+            
+            // 如果是属性，保存 PropertyInfo
+            if (member.Member is PropertyInfo propertyInfo)
+            {
+                properties.Insert(0, propertyInfo);
+            }
+            
             current = member.Expression;
         }
 
-        return path.Count > 0 ? string.Join(".", path) : null;
+        var fieldPath = path.Count > 0 ? string.Join(".", path) : null;
+        var lastProperty = properties.Count > 0 ? properties[properties.Count - 1] : null;
+
+        return (fieldPath, lastProperty);
+    }
+
+    /// <summary>
+    /// 从 Lambda 表达式中提取字段路径
+    /// </summary>
+    private string? ExtractFieldPath(Expression<Func<T, object>> expression)
+    {
+        var (fieldPath, _) = ExtractFieldPathWithProperty(expression);
+        return fieldPath;
     }
 
     /// <summary>

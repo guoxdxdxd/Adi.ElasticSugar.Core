@@ -1,0 +1,12 @@
+# 忽略包含敏感信息的配置文件
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Local.json
+appsettings.*.json
+
+# 忽略包含真实密码的配置文件
+appsettings.json
+
+# 但保留示例配置文件作为模板
+!appsettings.json.example
+
