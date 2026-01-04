@@ -88,6 +88,8 @@ public static class ExpressionParser
 
     /// <summary>
     /// 解析 AND 表达式
+    /// 将左右两个查询条件组合成 Bool.Must 查询
+    /// 注意：每个 action 都会创建一个独立的查询，然后通过 Bool.Must 组合
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseAndExpression<T>(BinaryExpression binary)
     {
@@ -110,6 +112,8 @@ public static class ExpressionParser
         }
 
         // 组合成 Bool.Must 查询
+        // 每个 action 会创建一个查询，然后通过 Bool.Must 组合
+        // 这样可以正确处理嵌套查询和普通查询的组合
         return q => q.Bool(b => b.Must(new[] { left, right }));
     }
 
@@ -146,25 +150,15 @@ public static class ExpressionParser
     private static Action<QueryDescriptor<T>>? ParseComparison<T>(BinaryExpression binary, ComparisonType comparisonType)
     {
         // 提取字段路径和值
-        var (fieldPath, nestedPath, value) = ExtractFieldAndValue<T>(binary.Left, binary.Right);
+        var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(binary.Left, binary.Right);
         
         if (string.IsNullOrEmpty(fieldPath) || value == null)
         {
             return null;
         }
 
-        // 获取字段的 PropertyInfo（用于判断是否需要 keyword）
-        PropertyInfo? lastProperty = null;
-        if (binary.Left is MemberExpression leftMember)
-        {
-            lastProperty = GetLastPropertyFromExpression<T>(binary.Left);
-        }
-        else if (binary.Right is MemberExpression rightMember)
-        {
-            lastProperty = GetLastPropertyFromExpression<T>(binary.Right);
-        }
-
         // 对于精确匹配（等于、不等于）和范围查询，需要判断是否使用 keyword
+        // 使用从 ExtractFieldFromExpression 返回的 lastProperty，确保嵌套字段的属性信息正确
         var finalFieldPath = comparisonType == ComparisonType.Equals || comparisonType == ComparisonType.NotEquals
             ? GetFieldPathForExactMatch(fieldPath, lastProperty)
             : GetFieldPathForRangeQuery(fieldPath, lastProperty, value);
@@ -218,10 +212,21 @@ public static class ExpressionParser
         if (methodCall.Object != null)
         {
             // 形式1：field.Contains(value)
-            var (fieldPath, nestedPath, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+            var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
             if (!string.IsNullOrEmpty(fieldPath) && value != null)
             {
-                return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}*");
+                // 根据字段类型选择合适的查询方式
+                // text 类型字段使用 match 查询（支持分词），keyword 类型字段使用 wildcard 查询
+                if (IsKeywordField(lastProperty))
+                {
+                    // keyword 类型字段使用 wildcard 查询
+                    return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}*");
+                }
+                else
+                {
+                    // text 类型字段使用 match 查询（支持全文搜索和分词）
+                    return BuildMatchQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
+                }
             }
         }
         else if (methodCall.Arguments.Count == 2)
@@ -251,10 +256,20 @@ public static class ExpressionParser
             return null;
         }
 
-        var (fieldPath, nestedPath, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+        var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
         if (!string.IsNullOrEmpty(fieldPath) && value != null)
         {
-            return BuildWildcardQuery<T>(fieldPath, nestedPath, $"{value}*");
+            // 根据字段类型选择合适的查询方式
+            if (IsKeywordField(lastProperty))
+            {
+                // keyword 类型字段使用 wildcard 查询
+                return BuildWildcardQuery<T>(fieldPath, nestedPath, $"{value}*");
+            }
+            else
+            {
+                // text 类型字段使用 match_phrase_prefix 查询（匹配以指定值开头的短语）
+                return BuildMatchPhrasePrefixQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
+            }
         }
 
         return null;
@@ -270,10 +285,23 @@ public static class ExpressionParser
             return null;
         }
 
-        var (fieldPath, nestedPath, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
+        var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
         if (!string.IsNullOrEmpty(fieldPath) && value != null)
         {
-            return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}");
+            // 根据字段类型选择合适的查询方式
+            if (IsKeywordField(lastProperty))
+            {
+                // keyword 类型字段使用 wildcard 查询
+                return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}");
+            }
+            else
+            {
+                // text 类型字段的 EndsWith 查询比较复杂，可以使用 wildcard 查询在 .keyword 子字段上
+                // 或者使用 match 查询配合正则表达式，但最简单的方式是使用 .keyword 子字段的 wildcard 查询
+                // 对于 text 类型字段，EndsWith 应该使用 .keyword 子字段进行 wildcard 查询
+                var keywordFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                return BuildWildcardQuery<T>(keywordFieldPath, nestedPath, $"*{value}");
+            }
         }
 
         return null;
@@ -341,23 +369,23 @@ public static class ExpressionParser
     /// <summary>
     /// 从表达式中提取字段路径和值
     /// </summary>
-    private static (string? fieldPath, string? nestedPath, object? value) ExtractFieldAndValue<T>(
+    private static (string? fieldPath, string? nestedPath, PropertyInfo? lastProperty, object? value) ExtractFieldAndValue<T>(
         Expression left, Expression right)
     {
         // 尝试从左边提取字段，从右边提取值
-        var (fieldPath, nestedPath, _) = ExtractFieldFromExpression<T>(left);
+        var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(left);
         var value = EvaluateExpression(right);
 
         if (!string.IsNullOrEmpty(fieldPath))
         {
-            return (fieldPath, nestedPath, value);
+            return (fieldPath, nestedPath, lastProperty, value);
         }
 
         // 如果左边不是字段，尝试从右边提取字段，从左边提取值
-        (fieldPath, nestedPath, _) = ExtractFieldFromExpression<T>(right);
+        (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(right);
         value = EvaluateExpression(left);
 
-        return (fieldPath, nestedPath, value);
+        return (fieldPath, nestedPath, lastProperty, value);
     }
 
     /// <summary>
@@ -387,17 +415,19 @@ public static class ExpressionParser
                 properties.Insert(0, propertyInfo);
                 
                 // 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+                // 如果没有配置 FieldName，需要将 PascalCase 转换为 camelCase
+                // 因为 Elasticsearch 客户端在序列化文档时会自动将属性名转换为 camelCase
                 var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
                 var fieldName = !string.IsNullOrEmpty(esFieldAttr?.FieldName) 
                     ? esFieldAttr.FieldName 
-                    : propertyInfo.Name;
+                    : ToCamelCase(propertyInfo.Name);
                 
                 path.Insert(0, fieldName);
             }
             else
             {
-                // 非属性成员（如字段），直接使用名称
-                path.Insert(0, member.Member.Name);
+                // 非属性成员（如字段），将 PascalCase 转换为 camelCase
+                path.Insert(0, ToCamelCase(member.Member.Name));
             }
             
             current = member.Expression;
@@ -414,17 +444,74 @@ public static class ExpressionParser
 
         var fieldPath = string.Join(".", path);
 
-        // 如果路径包含多个部分，第一个部分可能是嵌套路径
-        // 例如：order.paymentStatus，order 是嵌套路径
-        if (path.Count > 1)
+        // 如果路径包含多个部分，需要检查第一个部分是否是嵌套类型
+        // 例如：address.city，如果 address 是嵌套类型，则 address 是嵌套路径，city 是字段路径
+        // 注意：在嵌套查询中，字段路径应该是相对于嵌套路径的，例如：
+        // - 如果查询 x.Address.City，则 nestedPath = "address"，fieldPath = "city"
+        // - 在构建嵌套查询时，会使用 nestedPath 作为 path，fieldPath 作为嵌套查询内的字段路径
+        if (path.Count > 1 && properties.Count > 0)
         {
-            nestedPath = path[0];
+            // 获取第一个属性（最外层的属性）
+            var firstProperty = properties[0];
+            var firstPropertyType = firstProperty.PropertyType;
+            
+            // 检查第一个属性是否是嵌套类型
+            // 首先检查 EsFieldAttribute.IsNested 特性
+            var esFieldAttr = firstProperty.GetCustomAttribute<EsFieldAttribute>();
+            bool isNested = esFieldAttr?.IsNested ?? IsNestedType(firstPropertyType);
+            
+            if (isNested)
+            {
+                // 第一个属性是嵌套类型，将其作为嵌套路径
+                // 注意：path[0] 已经是 camelCase 格式的字段名（例如 "address"）
+                nestedPath = path[0];
+                // 剩余部分作为字段路径（相对于嵌套路径）
+                // 注意：path.Skip(1) 中的字段名也已经是 camelCase 格式（例如 "city"）
+                fieldPath = string.Join(".", path.Skip(1));
+            }
         }
 
         // 返回最后一个属性的 PropertyInfo（用于获取字段特性）
         var lastProperty = properties.Count > 0 ? properties[properties.Count - 1] : null;
 
         return (fieldPath, nestedPath, lastProperty);
+    }
+
+    /// <summary>
+    /// 判断是否为嵌套类型
+    /// 引用类型（除了 string）且不是集合类型，会被识别为嵌套文档
+    /// 与 IndexMappingBuilder.IsNestedType 逻辑保持一致
+    /// </summary>
+    private static bool IsNestedType(Type type)
+    {
+        // 处理可空类型
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        // 基本类型不是嵌套
+        if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(Guid) || type == typeof(decimal))
+        {
+            return false;
+        }
+
+        // 引用类型且不是集合，视为嵌套
+        return !type.IsValueType && !IsCollectionType(type);
+    }
+
+    /// <summary>
+    /// 判断是否为集合类型
+    /// </summary>
+    private static bool IsCollectionType(Type type)
+    {
+        // 处理可空类型
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        return type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
     }
 
     /// <summary>
@@ -475,6 +562,17 @@ public static class ExpressionParser
     /// <summary>
     /// 构建比较查询（等于、不等于、大于、小于、大于等于、小于等于）
     /// </summary>
+    /// <param name="fieldPath">字段路径（相对于嵌套路径，如果存在嵌套路径）</param>
+    /// <param name="nestedPath">嵌套路径（如果字段在嵌套文档中）</param>
+    /// <param name="comparisonType">比较类型</param>
+    /// <param name="value">比较值</param>
+    /// <remarks>
+    /// 对于嵌套查询：
+    /// - nestedPath 是嵌套文档的路径（例如 "address"）
+    /// - fieldPath 是嵌套文档内的字段路径（例如 "city.keyword"）
+    /// - 在构建嵌套查询时，字段路径需要包含完整的嵌套路径（例如 "address.city.keyword"）
+    /// - 这是因为 Elasticsearch 嵌套查询中的字段路径需要是完整路径，而不是相对于嵌套路径的相对路径
+    /// </remarks>
     private static Action<QueryDescriptor<T>> BuildComparisonQuery<T>(
         string fieldPath, string? nestedPath, ComparisonType comparisonType, object value)
     {
@@ -483,13 +581,19 @@ public static class ExpressionParser
             // 处理嵌套查询
             if (!string.IsNullOrEmpty(nestedPath))
             {
+                // 构建嵌套查询
+                // nestedPath 是嵌套文档的路径（例如 "address"）
+                // fieldPath 是嵌套文档内的字段路径（例如 "city.keyword"）
+                // 在嵌套查询中，字段路径需要包含完整的嵌套路径（例如 "address.city.keyword"）
+                var fullFieldPath = $"{nestedPath}.{fieldPath}";
                 query.Nested(n => n
                     .Path(nestedPath)
-                    .Query(nq => ApplyComparisonToQuery(nq, fieldPath, comparisonType, value))
+                    .Query(nq => ApplyComparisonToQuery(nq, fullFieldPath, comparisonType, value))
                 );
             }
             else
             {
+                // 普通查询（非嵌套）
                 ApplyComparisonToQuery(query, fieldPath, comparisonType, value);
             }
         };
@@ -635,6 +739,13 @@ public static class ExpressionParser
             var time = ((DateTime)value).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             query.Term(t => t.Field(fieldPath).Value(time));
         }
+        else if (valueType == typeof(DateTimeOffset))
+        {
+            // DateTimeOffset 使用 ISO 8601 格式（包含时区信息）
+            // 格式：yyyy-MM-ddTHH:mm:ss.fffzzz（例如：2024-01-14T10:00:00.000+08:00）
+            var timeOffset = ((DateTimeOffset)value).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz");
+            query.Term(t => t.Field(fieldPath).Value(timeOffset));
+        }
         else if (IsNumericType(valueType))
         {
             query.Term(t => t.Field(fieldPath).Value(Convert.ToDouble(value)));
@@ -674,6 +785,22 @@ public static class ExpressionParser
             return;
         }
 
+        // DateTimeOffset 类型
+        // 将 DateTimeOffset 转换为 DateTime（使用 UTC 时间）用于范围查询
+        // 因为 Elasticsearch 的日期范围查询接受 DateTime 类型
+        if (value is DateTimeOffset dateTimeOffset)
+        {
+            // 将 DateTimeOffset 转换为 UTC 的 DateTime
+            var utcDateTime = dateTimeOffset.UtcDateTime;
+            query.Range(r => r
+                .DateRange(dr => dr
+                    .Field(fieldPath)
+                    .ApplyRangeComparison(comparisonType, utcDateTime)
+                )
+            );
+            return;
+        }
+
         // 数字类型
         if (IsNumericType(valueType))
         {
@@ -691,8 +818,88 @@ public static class ExpressionParser
     }
 
     /// <summary>
-    /// 构建 Wildcard 查询（用于 Contains, StartsWith, EndsWith）
-    /// 注意：Wildcard 查询使用 text 字段本身，不需要 .keyword 后缀
+    /// 判断字段是否为 keyword 类型
+    /// </summary>
+    private static bool IsKeywordField(PropertyInfo? propertyInfo)
+    {
+        if (propertyInfo == null)
+        {
+            return false;
+        }
+
+        var propertyType = propertyInfo.PropertyType;
+        // 处理可空类型
+        if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            propertyType = propertyType.GetGenericArguments()[0];
+        }
+
+        // 只有字符串类型才可能是 keyword
+        if (propertyType != typeof(string))
+        {
+            return false;
+        }
+
+        // 获取字段特性
+        var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
+
+        // 如果 FieldType 明确指定为 "keyword"，则是 keyword 类型
+        return esFieldAttr?.FieldType?.ToLower() == "keyword";
+    }
+
+    /// <summary>
+    /// 构建 Match 查询（用于 text 类型字段的全文搜索）
+    /// Match 查询会对查询文本进行分词，然后匹配分词后的词项
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildMatchQuery<T>(
+        string fieldPath, string? nestedPath, string queryText)
+    {
+        return query =>
+        {
+            if (!string.IsNullOrEmpty(nestedPath))
+            {
+                // 在嵌套查询中，字段路径需要包含完整的嵌套路径
+                var fullFieldPath = $"{nestedPath}.{fieldPath}";
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq => nq.Match(m => m.Field(fullFieldPath).Query(queryText)))
+                );
+            }
+            else
+            {
+                query.Match(m => m.Field(fieldPath).Query(queryText));
+            }
+        };
+    }
+
+    /// <summary>
+    /// 构建 Match Phrase Prefix 查询（用于 text 类型字段的前缀匹配）
+    /// Match Phrase Prefix 查询会匹配以指定短语开头的文档
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildMatchPhrasePrefixQuery<T>(
+        string fieldPath, string? nestedPath, string queryText)
+    {
+        return query =>
+        {
+            if (!string.IsNullOrEmpty(nestedPath))
+            {
+                // 在嵌套查询中，字段路径需要包含完整的嵌套路径
+                var fullFieldPath = $"{nestedPath}.{fieldPath}";
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq => nq.MatchPhrasePrefix(m => m.Field(fullFieldPath).Query(queryText)))
+                );
+            }
+            else
+            {
+                query.MatchPhrasePrefix(m => m.Field(fieldPath).Query(queryText));
+            }
+        };
+    }
+
+    /// <summary>
+    /// 构建 Wildcard 查询（用于 keyword 类型字段的模式匹配）
+    /// 注意：Wildcard 查询只能用于 keyword 类型字段，不能用于 text 类型字段
     /// </summary>
     private static Action<QueryDescriptor<T>> BuildWildcardQuery<T>(
         string fieldPath, string? nestedPath, string pattern)
@@ -701,9 +908,11 @@ public static class ExpressionParser
         {
             if (!string.IsNullOrEmpty(nestedPath))
             {
+                // 在嵌套查询中，字段路径需要包含完整的嵌套路径
+                var fullFieldPath = $"{nestedPath}.{fieldPath}";
                 query.Nested(n => n
                     .Path(nestedPath)
-                    .Query(nq => nq.Wildcard(w => w.Field(fieldPath).Value(pattern)))
+                    .Query(nq => nq.Wildcard(w => w.Field(fullFieldPath).Value(pattern)))
                 );
             }
             else
@@ -726,19 +935,22 @@ public static class ExpressionParser
         }
 
         var fieldValues = ConvertToFieldValues(valueList);
+        var termsQueryField = new TermsQueryField(fieldValues);
 
         return query =>
         {
             if (!string.IsNullOrEmpty(nestedPath))
             {
+                // 在嵌套查询中，字段路径需要包含完整的嵌套路径
+                var fullFieldPath = $"{nestedPath}.{fieldPath}";
                 query.Nested(n => n
                     .Path(nestedPath)
-                    .Query(nq => nq.Terms(ts => ts.Field(fieldPath).Terms(new TermsQueryField(fieldValues))))
+                    .Query(nq => nq.Terms(ts => ts.Field(fullFieldPath).Terms(termsQueryField)))
                 );
             }
             else
             {
-                query.Terms(ts => ts.Field(fieldPath).Terms(new TermsQueryField(fieldValues)));
+                query.Terms(ts => ts.Field(fieldPath).Terms(termsQueryField));
             }
         };
     }
@@ -780,6 +992,14 @@ public static class ExpressionParser
             return values.Select(v => String(((DateTime)v).ToString("yyyy-MM-ddTHH:mm:ss.fffZ"))).ToArray();
         }
 
+        // DateTimeOffset 类型
+        if (valueType == typeof(DateTimeOffset))
+        {
+            // DateTimeOffset 使用 ISO 8601 格式（包含时区信息）
+            // 格式：yyyy-MM-ddTHH:mm:ss.fffzzz（例如：2024-01-14T10:00:00.000+08:00）
+            return values.Select(v => String(((DateTimeOffset)v).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"))).ToArray();
+        }
+
         // 默认转换为字符串
         return values.Select(v => String(v?.ToString() ?? string.Empty)).ToArray();
     }
@@ -795,6 +1015,37 @@ public static class ExpressionParser
                type == typeof(long) || type == typeof(ulong) ||
                type == typeof(float) || type == typeof(double) ||
                type == typeof(decimal);
+    }
+
+    /// <summary>
+    /// 将 PascalCase 转换为 camelCase
+    /// 例如：NullableBoolField -> nullableBoolField
+    /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
+    /// Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
+    /// 因此查询时也需要使用 camelCase 字段名才能正确匹配
+    /// </summary>
+    /// <param name="pascalCase">PascalCase 格式的字符串</param>
+    /// <returns>camelCase 格式的字符串</returns>
+    private static string ToCamelCase(string pascalCase)
+    {
+        if (string.IsNullOrEmpty(pascalCase))
+        {
+            return pascalCase;
+        }
+
+        // 如果第一个字符是小写，直接返回
+        if (char.IsLower(pascalCase[0]))
+        {
+            return pascalCase;
+        }
+
+        // 将第一个字符转换为小写
+        if (pascalCase.Length == 1)
+        {
+            return char.ToLowerInvariant(pascalCase[0]).ToString();
+        }
+
+        return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
     }
 }
 
@@ -848,4 +1099,5 @@ internal enum ComparisonType
     LessThan,
     LessThanOrEqual
 }
+
 

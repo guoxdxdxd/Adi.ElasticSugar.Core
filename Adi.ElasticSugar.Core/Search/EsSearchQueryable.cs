@@ -244,6 +244,8 @@ public class EsSearchQueryable<T>
 
     /// <summary>
     /// 从 Lambda 表达式中提取字段路径和 PropertyInfo
+    /// 字段名会进行转换：如果配置了 EsFieldAttribute.FieldName，则使用配置的名称；
+    /// 否则将 PascalCase 转换为 camelCase，以匹配 Elasticsearch 客户端序列化时的字段命名约定
     /// </summary>
     private (string? fieldPath, PropertyInfo? propertyInfo) ExtractFieldPathWithProperty(Expression<Func<T, object>> expression)
     {
@@ -259,12 +261,25 @@ public class EsSearchQueryable<T>
 
         while (current is MemberExpression member)
         {
-            path.Insert(0, member.Member.Name);
-            
-            // 如果是属性，保存 PropertyInfo
+            // 如果是属性，保存 PropertyInfo 并获取字段名称
             if (member.Member is PropertyInfo propertyInfo)
             {
                 properties.Insert(0, propertyInfo);
+                
+                // 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+                // 如果没有配置 FieldName，需要将 PascalCase 转换为 camelCase
+                // 因为 Elasticsearch 客户端在序列化文档时会自动将属性名转换为 camelCase
+                var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
+                var fieldName = !string.IsNullOrEmpty(esFieldAttr?.FieldName) 
+                    ? esFieldAttr.FieldName 
+                    : ToCamelCase(propertyInfo.Name);
+                
+                path.Insert(0, fieldName);
+            }
+            else
+            {
+                // 非属性成员（如字段），将 PascalCase 转换为 camelCase
+                path.Insert(0, ToCamelCase(member.Member.Name));
             }
             
             current = member.Expression;
@@ -274,6 +289,37 @@ public class EsSearchQueryable<T>
         var lastProperty = properties.Count > 0 ? properties[properties.Count - 1] : null;
 
         return (fieldPath, lastProperty);
+    }
+
+    /// <summary>
+    /// 将 PascalCase 转换为 camelCase
+    /// 例如：IntField -> intField
+    /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
+    /// Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
+    /// 因此查询和排序时也需要使用 camelCase 字段名才能正确匹配
+    /// </summary>
+    /// <param name="pascalCase">PascalCase 格式的字符串</param>
+    /// <returns>camelCase 格式的字符串</returns>
+    private static string ToCamelCase(string pascalCase)
+    {
+        if (string.IsNullOrEmpty(pascalCase))
+        {
+            return pascalCase;
+        }
+
+        // 如果第一个字符是小写，直接返回
+        if (char.IsLower(pascalCase[0]))
+        {
+            return pascalCase;
+        }
+
+        // 将第一个字符转换为小写
+        if (pascalCase.Length == 1)
+        {
+            return char.ToLowerInvariant(pascalCase[0]).ToString();
+        }
+
+        return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
     }
 
     /// <summary>

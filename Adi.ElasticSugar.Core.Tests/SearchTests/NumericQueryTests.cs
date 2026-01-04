@@ -223,15 +223,17 @@ public class NumericQueryTests : TestBase
         // Arrange
         var indexName = "test-documents-2024-01";
 
-        // Act
+        // Act - 查询 20.0 < DoubleField < 40.0 的记录
         var result = await Client.Search<TestDocument>(indexName)
             .Where(x => x.DoubleField > 20.0 && x.DoubleField < 40.0)
             .ToListAsync();
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().DoubleField.Should().Be(30.5);
+        // 应该返回 2 条记录：20.5 和 30.5（都满足 > 20.0 且 < 40.0）
+        result.Documents.Should().HaveCount(2);
+        result.Documents.All(x => x.DoubleField > 20.0 && x.DoubleField < 40.0).Should().BeTrue();
+        result.Documents.Select(x => x.DoubleField).Should().Contain(new[] { 20.5, 30.5 });
     }
 
     /// <summary>

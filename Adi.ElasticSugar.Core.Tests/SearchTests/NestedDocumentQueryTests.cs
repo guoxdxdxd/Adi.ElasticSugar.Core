@@ -205,5 +205,113 @@ public class NestedDocumentQueryTests : TestBase
         retrieved.Items.Should().HaveCount(1);
         retrieved.Items[0].ProductName.Should().Be("Test Product");
     }
+
+    /// <summary>
+    /// 测试嵌套字段的等于查询
+    /// 测试查询嵌套文档中的字段（如 x.Address.City == "Beijing"）
+    /// </summary>
+    [Fact]
+    public async Task Where_NestedField_Equals_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询 Address.City == "Beijing" 的文档
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.Address.City == "Beijing")
+            .ToListAsync();
+
+        // Assert
+        if (!result.IsSuccess())
+        {
+            throw new Exception($"查询失败: {result.DebugInformation}");
+        }
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3 都在 Beijing
+        result.Documents.All(x => x.Address.City == "Beijing").Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试嵌套字段的 Contains 查询
+    /// </summary>
+    [Fact]
+    public async Task Where_NestedField_Contains_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询 Address.Street 包含 "Street" 的文档
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.Address.Street.Contains("Street"))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // 所有文档的 Street 都包含 "Street"
+        result.Documents.All(x => x.Address.Street.Contains("Street")).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试嵌套字段的 StartsWith 查询
+    /// </summary>
+    [Fact]
+    public async Task Where_NestedField_StartsWith_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询 Address.Country 以 "China" 开头的文档
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.Address.Country.StartsWith("China"))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // 所有文档的 Country 都是 "China"
+        result.Documents.All(x => x.Address.Country.StartsWith("China")).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试嵌套字段的多条件组合查询
+    /// </summary>
+    [Fact]
+    public async Task Where_NestedField_WithMultipleConditions_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询 Address.City == "Beijing" AND Address.ZipCode == "100001"
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.Address.City == "Beijing" && x.Address.ZipCode == "100001")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(1); // 只有 Order 1 满足条件
+        result.Documents.First().TextField.Should().Be("Order 1");
+        result.Documents.First().Address.City.Should().Be("Beijing");
+        result.Documents.First().Address.ZipCode.Should().Be("100001");
+    }
+
+    /// <summary>
+    /// 测试嵌套字段和普通字段的组合查询
+    /// </summary>
+    [Fact]
+    public async Task Where_NestedField_AndRegularField_Combination_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询 TextField == "Order 1" AND Address.City == "Beijing"
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.TextField == "Order 1" && x.Address.City == "Beijing")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(1);
+        result.Documents.First().TextField.Should().Be("Order 1");
+        result.Documents.First().Address.City.Should().Be("Beijing");
+    }
 }
 

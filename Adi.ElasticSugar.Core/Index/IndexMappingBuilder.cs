@@ -14,7 +14,9 @@ internal static class IndexMappingBuilder
 {
     /// <summary>
     /// 获取字段在 Elasticsearch 中的字段名称
-    /// 如果字段配置了 FieldName，则使用配置的名称；否则使用属性名称
+    /// 如果字段配置了 FieldName，则使用配置的名称
+    /// 否则将属性名称从 PascalCase 转换为 camelCase
+    /// 因为 Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
     /// </summary>
     /// <param name="property">属性信息</param>
     /// <param name="esFieldAttr">字段特性</param>
@@ -27,8 +29,9 @@ internal static class IndexMappingBuilder
             return esFieldAttr.FieldName;
         }
         
-        // 否则使用属性名称（Pascal 命名）
-        return property.Name;
+        // 否则将属性名称从 PascalCase 转换为 camelCase
+        // 以匹配 Elasticsearch 客户端序列化时的字段命名约定
+        return ToCamelCase(property.Name);
     }
 
     /// <summary>
@@ -608,6 +611,20 @@ internal static class IndexMappingBuilder
                 });
                 break;
 
+            case "keyword":
+                // Guid 类型会被映射为 keyword
+                propertiesDescriptor.Keyword(propertyName, k =>
+                {
+                    if (esFieldAttr != null)
+                    {
+                        if (!esFieldAttr.Index)
+                            k.Index(false);
+                        if (esFieldAttr.Store)
+                            k.Store(true);
+                    }
+                });
+                break;
+
             default:
                 // 默认使用 object 类型
                 propertiesDescriptor.Object(propertyName, o => { });
@@ -740,6 +757,21 @@ internal static class IndexMappingBuilder
                 propertiesDescriptor.Boolean(propertyName, boolAction);
                 break;
 
+            case "keyword":
+                // Guid 类型会被映射为 keyword
+                Action<dynamic> keywordAction = k =>
+                {
+                    if (esFieldAttr != null)
+                    {
+                        if (!esFieldAttr.Index)
+                            k.Index(false);
+                        if (esFieldAttr.Store)
+                            k.Store(true);
+                    }
+                };
+                propertiesDescriptor.Keyword(propertyName, keywordAction);
+                break;
+
             default:
                 // 默认使用 object 类型
                 Action<dynamic> objectAction = o => { };
@@ -865,6 +897,20 @@ internal static class IndexMappingBuilder
                 });
                 break;
 
+            case "keyword":
+                // Guid 类型会被映射为 keyword
+                propertiesDescriptor.Keyword(propertyName, k =>
+                {
+                    if (esFieldAttr != null)
+                    {
+                        if (!esFieldAttr.Index)
+                            k.Index(false);
+                        if (esFieldAttr.Store)
+                            k.Store(true);
+                    }
+                });
+                break;
+
             default:
                 // 默认使用 object 类型
                 propertiesDescriptor.Object(propertyName, o => { });
@@ -968,6 +1014,37 @@ internal static class IndexMappingBuilder
             var t when t == typeof(Guid) => "keyword",
             _ => "object"
         };
+    }
+
+    /// <summary>
+    /// 将 PascalCase 转换为 camelCase
+    /// 例如：NullableBoolField -> nullableBoolField
+    /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
+    /// Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
+    /// 因此索引映射和查询时也需要使用 camelCase 字段名才能正确匹配
+    /// </summary>
+    /// <param name="pascalCase">PascalCase 格式的字符串</param>
+    /// <returns>camelCase 格式的字符串</returns>
+    private static string ToCamelCase(string pascalCase)
+    {
+        if (string.IsNullOrEmpty(pascalCase))
+        {
+            return pascalCase;
+        }
+
+        // 如果第一个字符是小写，直接返回
+        if (char.IsLower(pascalCase[0]))
+        {
+            return pascalCase;
+        }
+
+        // 将第一个字符转换为小写
+        if (pascalCase.Length == 1)
+        {
+            return char.ToLowerInvariant(pascalCase[0]).ToString();
+        }
+
+        return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
     }
 }
 
