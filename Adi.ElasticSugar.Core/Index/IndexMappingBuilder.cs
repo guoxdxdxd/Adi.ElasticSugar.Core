@@ -13,6 +13,25 @@ namespace Adi.ElasticSugar.Core.Index;
 internal static class IndexMappingBuilder
 {
     /// <summary>
+    /// 获取字段在 Elasticsearch 中的字段名称
+    /// 如果字段配置了 FieldName，则使用配置的名称；否则使用属性名称
+    /// </summary>
+    /// <param name="property">属性信息</param>
+    /// <param name="esFieldAttr">字段特性</param>
+    /// <returns>字段名称</returns>
+    private static string GetIndexFieldName(PropertyInfo property, EsFieldAttribute? esFieldAttr)
+    {
+        // 如果配置了 FieldName，优先使用配置的名称
+        if (!string.IsNullOrEmpty(esFieldAttr?.FieldName))
+        {
+            return esFieldAttr.FieldName;
+        }
+        
+        // 否则使用属性名称（Pascal 命名）
+        return property.Name;
+    }
+
+    /// <summary>
     /// 构建类型映射配置
     /// 自动识别嵌套文档、字段类型、keyword 需求等
     /// </summary>
@@ -52,7 +71,8 @@ internal static class IndexMappingBuilder
         EsFieldAttribute? esFieldAttr)
     {
         var propertyType = property.PropertyType;
-        var propertyName = property.Name;
+        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = GetIndexFieldName(property, esFieldAttr);
 
         // 判断是否为嵌套文档
         bool isNested = esFieldAttr?.IsNested ?? IsNestedType(propertyType);
@@ -60,7 +80,7 @@ internal static class IndexMappingBuilder
         if (isNested)
         {
             // 嵌套文档类型
-            BuildNestedMapping(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+            BuildNestedMapping(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
         }
         else if (IsCollectionType(propertyType))
         {
@@ -69,18 +89,18 @@ internal static class IndexMappingBuilder
             if (elementType != null && IsNestedType(elementType))
             {
                 // 嵌套文档集合
-                BuildNestedMapping(propertiesDescriptor, propertyName, elementType, esFieldAttr);
+                BuildNestedMapping(propertiesDescriptor, fieldName, elementType, esFieldAttr);
             }
             else
             {
                 // 普通集合（如 string[]）
-                BuildSimplePropertyMapping(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+                BuildSimplePropertyMapping(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
             }
         }
         else
         {
             // 简单类型
-            BuildSimplePropertyMapping(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+            BuildSimplePropertyMapping(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
         }
     }
 
@@ -127,7 +147,8 @@ internal static class IndexMappingBuilder
         Type? parentType = null)
     {
         var propertyType = property.PropertyType;
-        var propertyName = property.Name;
+        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = GetIndexFieldName(property, esFieldAttr);
 
         if (IsNestedType(propertyType))
         {
@@ -147,7 +168,7 @@ internal static class IndexMappingBuilder
                     }
                 }));
             };
-            propertiesDescriptor.Nested(propertyName, nestedAction);
+            propertiesDescriptor.Nested(fieldName, nestedAction);
         }
         else if (IsCollectionType(propertyType))
         {
@@ -169,16 +190,16 @@ internal static class IndexMappingBuilder
                         }
                     }));
                 };
-                propertiesDescriptor.Nested(propertyName, nestedAction);
+                propertiesDescriptor.Nested(fieldName, nestedAction);
             }
             else
             {
-                BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+                BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
             }
         }
         else
         {
-            BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+            BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
         }
     }
 
@@ -193,12 +214,13 @@ internal static class IndexMappingBuilder
         Type? parentType = null)
     {
         var propertyType = property.PropertyType;
-        var propertyName = property.Name;
+        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = GetIndexFieldName(property, esFieldAttr);
 
         if (IsNestedType(propertyType))
         {
             // 嵌套的嵌套
-            propertiesDescriptor.Nested(propertyName, n => n
+            propertiesDescriptor.Nested(fieldName, n => n
                 .Properties(p =>
                 {
                     var nestedProperties = propertyType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -217,7 +239,7 @@ internal static class IndexMappingBuilder
             var elementType = GetCollectionElementType(propertyType);
             if (elementType != null && IsNestedType(elementType))
             {
-                propertiesDescriptor.Nested(propertyName, n => n
+                propertiesDescriptor.Nested(fieldName, n => n
                     .Properties(p =>
                     {
                         var nestedProperties = elementType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -233,12 +255,12 @@ internal static class IndexMappingBuilder
             }
             else
             {
-                BuildSimplePropertyMappingForNested(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+                BuildSimplePropertyMappingForNested(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
             }
         }
         else
         {
-            BuildSimplePropertyMappingForNested(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
+            BuildSimplePropertyMappingForNested(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
         }
     }
 

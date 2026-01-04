@@ -1,4 +1,5 @@
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Microsoft.Extensions.Configuration;
 using System.Net.Http;
 using System.Net.Security;
@@ -82,7 +83,8 @@ public abstract class TestBase : IAsyncLifetime
 
         if (!string.IsNullOrEmpty(userName) && !string.IsNullOrEmpty(password))
         {
-            settings = settings.Authentication(new Elastic.Clients.Elasticsearch.Authentication.BasicAuthentication(userName, password));
+            // 使用 BasicAuthentication 进行认证
+            settings = settings.Authentication(new BasicAuthentication(userName, password));
         }
 
         // 对于 HTTPS 连接，如果是测试环境，可能需要跳过证书验证
@@ -91,15 +93,9 @@ public abstract class TestBase : IAsyncLifetime
         {
             // 跳过证书验证（仅用于测试环境）
             // 生产环境应该配置正确的证书
-            // 通过配置 HttpClientFactory 来跳过证书验证
-            settings = settings.HttpClientFactory(() =>
-            {
-                var handler = new HttpClientHandler
-                {
-                    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                };
-                return new HttpClient(handler);
-            });
+            // 通过配置 ServerCertificateValidationCallback 来跳过证书验证
+            settings = settings.ServerCertificateValidationCallback(
+                (sender, certificate, chain, sslPolicyErrors) => true);
         }
 
         return settings;

@@ -14,13 +14,16 @@ public class TestDocument : BaseEsModel
     
     /// <summary>
     /// 默认 text 类型 + keyword 子字段（用于全文搜索和精确匹配）
+    /// 使用 FieldName 指定 ES 中的字段名为 "textField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "textField")]
     public string TextField { get; set; } = string.Empty;
 
     /// <summary>
     /// 纯 keyword 类型（用于精确匹配和排序，不支持分词）
+    /// 使用 FieldName 指定 ES 中的字段名为 "keywordField"（驼峰命名）
     /// </summary>
-    [EsField(FieldType = "keyword")]
+    [EsField(FieldType = "keyword", FieldName = "keywordField")]
     public string KeywordField { get; set; } = string.Empty;
 
     /// <summary>
@@ -38,7 +41,9 @@ public class TestDocument : BaseEsModel
     
     /// <summary>
     /// int 类型（自动映射为 integer）
+    /// 使用 FieldName 指定 ES 中的字段名为 "intField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "intField")]
     public int IntField { get; set; }
 
     /// <summary>
@@ -48,7 +53,9 @@ public class TestDocument : BaseEsModel
 
     /// <summary>
     /// long 类型（自动映射为 long）
+    /// 使用 FieldName 指定 ES 中的字段名为 "longField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "longField")]
     public long LongField { get; set; }
 
     /// <summary>
@@ -70,7 +77,9 @@ public class TestDocument : BaseEsModel
     
     /// <summary>
     /// double 类型（自动映射为 double）
+    /// 使用 FieldName 指定 ES 中的字段名为 "doubleField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "doubleField")]
     public double DoubleField { get; set; }
 
     /// <summary>
@@ -92,7 +101,9 @@ public class TestDocument : BaseEsModel
     
     /// <summary>
     /// DateTime 类型（自动映射为 date）
+    /// 使用 FieldName 指定 ES 中的字段名为 "dateTimeField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "dateTimeField")]
     public DateTime DateTimeField { get; set; }
 
     /// <summary>
@@ -109,7 +120,9 @@ public class TestDocument : BaseEsModel
     
     /// <summary>
     /// bool 类型（自动映射为 boolean）
+    /// 使用 FieldName 指定 ES 中的字段名为 "boolField"（驼峰命名）
     /// </summary>
+    [EsField(FieldName = "boolField")]
     public bool BoolField { get; set; }
 
     /// <summary>
@@ -146,6 +159,7 @@ public class TestDocument : BaseEsModel
     /// <summary>
     /// 嵌套文档（自动识别为 nested 类型）
     /// </summary>
+    [EsField(FieldName = "address")]
     public NestedAddress Address { get; set; } = new();
 
     /// <summary>

@@ -12,7 +12,7 @@ namespace Adi.ElasticSugar.Core.Index;
 public class ElasticsearchIndexManager
 {
     private readonly ElasticsearchClient _client;
-    private readonly ConcurrentDictionary<string, bool> _indexCache = new();
+    private static readonly ConcurrentDictionary<string, bool> _indexCache = new();
     private readonly object _lockObject = new();
 
     /// <summary>
@@ -77,7 +77,9 @@ public class ElasticsearchIndexManager
                 throw new Exception($"创建索引失败: {indexName}, {createIndexResponse.DebugInformation}");
             }
 
-            _indexCache.TryAdd(indexName, true);
+            // 使用 AddOrUpdate 确保无论缓存中是否存在该键，都能更新为 true
+            // 如果之前缓存了 false（索引不存在），现在创建成功后需要更新为 true
+            _indexCache.AddOrUpdate(indexName, true, (key, oldValue) => true);
             return true;
         }
     }
@@ -107,7 +109,9 @@ public class ElasticsearchIndexManager
         }
 
         exists = response.Exists;
-        _indexCache.TryAdd(indexName, exists);
+        // 使用 AddOrUpdate 确保无论缓存中是否存在该键，都能更新为最新的存在状态
+        // 如果之前缓存了 false，但索引现在存在了，需要更新为 true
+        _indexCache.AddOrUpdate(indexName, exists, (key, oldValue) => exists);
         return exists;
     }
 

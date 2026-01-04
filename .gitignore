@@ -50,9 +50,59 @@ artifacts/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 
+# 测试相关文件
+# 测试结果文件
+*.trx
+*.coverage
+*.coveragexml
+*.testlog
+*.testsettings
+*.testsettings.user
+
+# 测试输出目录
+TestResults/
+[Tt]est[Rr]esult*/
+.vs/TestResults/
+**/TestResults/
+
+# xUnit 测试结果
+xunit-test-results.xml
+xunit-test-results.json
+
+# 代码覆盖率文件
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+**/coverage/
+
 # .NET Core build results
 **/bin/
 **/obj/
+
+# 编译输出文件（DLL、PDB 等）
+*.dll
+*.pdb
+*.exe
+*.deps.json
+*.runtimeconfig.json
+*.runtimeconfig.dev.json
+*.assets.json
+*.cache
+*.sourcelink.json
+*.AssemblyInfo.cs
+*.GlobalUsings.g.cs
+*.GeneratedMSBuildEditorConfig.editorconfig
+*.FileListAbsolute.txt
+*.AssemblyReference.cache
+*.CoreCompileInputs.cache
+*.AssemblyInfoInputs.cache
+*.assets.cache
+*.csproj.nuget.dgspec.json
+*.csproj.nuget.g.props
+*.csproj.nuget.g.targets
+project.assets.json
+project.nuget.cache
 
 # macOS
 .DS_Store

@@ -1,6 +1,7 @@
 using Adi.ElasticSugar.Core.Index;
 using Adi.ElasticSugar.Core.Models;
 using Adi.ElasticSugar.Core.Tests.Models;
+using Elastic.Clients.Elasticsearch;
 using FluentAssertions;
 using Xunit;
 
@@ -181,8 +182,8 @@ public class IndexCreationTests : TestBase
         var indexName = await Client.CreateIndexForDocumentAsync(document);
 
         // Assert - 获取索引映射并验证
-        var mappingResponse = await Client.Indices.GetMappingAsync(indexName);
-        mappingResponse.IsSuccess().Should().BeTrue();
+        var mappingResponse = await Client.Indices.GetMappingAsync(idx => idx.Indices(indexName));
+        // GetMappingResponse 没有 IsSuccess 方法，直接检查 Indices 是否包含索引
         mappingResponse.Indices.Should().NotBeNull();
         mappingResponse.Indices!.Should().ContainKey(indexName);
 

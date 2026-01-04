@@ -58,5 +58,13 @@ public class EsFieldAttribute : Attribute
     /// 如果为 false，字段值不会被存储，但仍可以索引
     /// </summary>
     public bool Store { get; set; } = false;
+
+    /// <summary>
+    /// 字段在 Elasticsearch 中的字段名称
+    /// 如果指定了此值，创建索引和查询时会使用此名称而不是属性名称
+    /// 例如：如果属性名为 TextField，但 FieldName 为 "textField"，则 ES 中的字段名为 "textField"
+    /// 如果为 null 或空字符串，则使用属性名称（Pascal 命名）
+    /// </summary>
+    public string? FieldName { get; set; }
 }
 

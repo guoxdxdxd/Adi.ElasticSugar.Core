@@ -39,6 +39,12 @@ public static class ExpressionParser
             // 方法调用：Contains, StartsWith, EndsWith 等
             MethodCallExpression methodCall => ParseMethodCall<T>(methodCall),
             
+            // 成员访问表达式：处理布尔字段的直接引用（如 x => x.BoolField）
+            MemberExpression member => ParseMemberExpression<T>(member),
+            
+            // 一元表达式：处理类型转换（如 (bool)x.BoolField）
+            UnaryExpression unary when unary.NodeType == ExpressionType.Convert => ParseNode<T>(unary.Operand),
+            
             // 逻辑运算符：&&, ||
             // 注意：在 C# 中，&& 和 || 会被编译为 BinaryExpression，但 NodeType 不同
             _ => null
@@ -283,6 +289,56 @@ public static class ExpressionParser
     }
 
     /// <summary>
+    /// 解析成员访问表达式
+    /// 主要用于处理布尔字段的直接引用（如 x => x.BoolField）
+    /// 当表达式是布尔类型的成员访问时，将其转换为 field == true 的查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>>? ParseMemberExpression<T>(MemberExpression member)
+    {
+        // 检查成员的类型是否为布尔类型
+        Type? memberType = null;
+        
+        if (member.Member is PropertyInfo propertyInfo)
+        {
+            memberType = propertyInfo.PropertyType;
+        }
+        else if (member.Member is FieldInfo fieldInfo)
+        {
+            memberType = fieldInfo.FieldType;
+        }
+
+        // 如果不是布尔类型，不支持直接引用
+        if (memberType == null)
+        {
+            return null;
+        }
+
+        // 处理可空布尔类型
+        var underlyingType = memberType;
+        if (memberType.IsGenericType && memberType.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            underlyingType = memberType.GetGenericArguments()[0];
+        }
+
+        // 只有布尔类型才支持直接引用
+        if (underlyingType != typeof(bool))
+        {
+            return null;
+        }
+
+        // 提取字段路径
+        var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(member);
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return null;
+        }
+
+        // 对于布尔类型，不需要 keyword 后缀
+        // 构建 field == true 的查询
+        return BuildComparisonQuery<T>(fieldPath, nestedPath, ComparisonType.Equals, true);
+    }
+
+    /// <summary>
     /// 从表达式中提取字段路径和值
     /// </summary>
     private static (string? fieldPath, string? nestedPath, object? value) ExtractFieldAndValue<T>(
@@ -307,6 +363,7 @@ public static class ExpressionParser
     /// <summary>
     /// 从表达式中提取字段路径
     /// 返回字段路径、嵌套路径和最后一个属性的 PropertyInfo（用于获取特性信息）
+    /// 如果字段配置了 IndexName，则使用配置的索引名称
     /// </summary>
     private static (string? fieldPath, string? nestedPath, PropertyInfo? lastProperty) ExtractFieldFromExpression<T>(Expression expression)
     {
@@ -324,12 +381,23 @@ public static class ExpressionParser
         // 提取成员访问路径
         while (current is MemberExpression member)
         {
-            path.Insert(0, member.Member.Name);
-            
-            // 如果是属性，保存 PropertyInfo
+            // 如果是属性，保存 PropertyInfo 并获取索引名称
             if (member.Member is PropertyInfo propertyInfo)
             {
                 properties.Insert(0, propertyInfo);
+                
+                // 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+                var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
+                var fieldName = !string.IsNullOrEmpty(esFieldAttr?.FieldName) 
+                    ? esFieldAttr.FieldName 
+                    : propertyInfo.Name;
+                
+                path.Insert(0, fieldName);
+            }
+            else
+            {
+                // 非属性成员（如字段），直接使用名称
+                path.Insert(0, member.Member.Name);
             }
             
             current = member.Expression;

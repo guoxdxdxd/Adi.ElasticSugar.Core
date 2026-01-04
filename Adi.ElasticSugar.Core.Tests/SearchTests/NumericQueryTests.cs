@@ -1,6 +1,7 @@
 using Adi.ElasticSugar.Core.Document;
 using Adi.ElasticSugar.Core.Search;
 using Adi.ElasticSugar.Core.Tests.Models;
+using Elastic.Clients.Elasticsearch;
 using FluentAssertions;
 using Xunit;
 

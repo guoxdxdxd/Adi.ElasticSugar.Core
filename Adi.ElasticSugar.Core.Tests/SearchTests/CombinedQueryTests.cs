@@ -1,6 +1,7 @@
 using Adi.ElasticSugar.Core.Document;
 using Adi.ElasticSugar.Core.Search;
 using Adi.ElasticSugar.Core.Tests.Models;
+using Elastic.Clients.Elasticsearch;
 using FluentAssertions;
 using Xunit;
 
@@ -211,8 +212,9 @@ public class CombinedQueryTests : TestBase
         // Assert
         result.IsSuccess().Should().BeTrue();
         result.Documents.Should().HaveCount(2);
-        result.Documents[0].IntField.Should().Be(30);
-        result.Documents[1].IntField.Should().Be(40);
+        var documents = result.Documents.ToList();
+        documents[0].IntField.Should().Be(30);
+        documents[1].IntField.Should().Be(40);
     }
 
     /// <summary>
@@ -234,9 +236,10 @@ public class CombinedQueryTests : TestBase
         // Assert
         result.IsSuccess().Should().BeTrue();
         result.Documents.Should().HaveCount(3);
-        result.Documents[0].IntField.Should().Be(50);
-        result.Documents[1].IntField.Should().Be(40);
-        result.Documents[2].IntField.Should().Be(30);
+        var documents = result.Documents.ToList();
+        documents[0].IntField.Should().Be(50);
+        documents[1].IntField.Should().Be(40);
+        documents[2].IntField.Should().Be(30);
     }
 
     /// <summary>
@@ -278,8 +281,9 @@ public class CombinedQueryTests : TestBase
         // Assert
         result.IsSuccess().Should().BeTrue();
         result.Documents.Should().HaveCount(2);
-        result.Documents[0].IntField.Should().Be(30);
-        result.Documents[1].IntField.Should().Be(40);
+        var documents = result.Documents.ToList();
+        documents[0].IntField.Should().Be(30);
+        documents[1].IntField.Should().Be(40);
     }
 }
 
