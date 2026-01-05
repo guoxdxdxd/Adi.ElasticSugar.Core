@@ -2,6 +2,7 @@ using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
 using Adi.ElasticSugar.Core.Models;
+using Adi.ElasticSugar.Core.Utils;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using static Elastic.Clients.Elasticsearch.FieldValue;
 
@@ -154,7 +155,7 @@ public static class ExpressionParser
             ? GetFieldPathForExactMatch(fieldPath, lastProperty)
             : GetFieldPathForRangeQuery(fieldPath, lastProperty, value);
 
-        return BuildComparisonQuery<T>(finalFieldPath, nestedPath, comparisonType, value);
+        return BuildComparisonQuery<T>(finalFieldPath, nestedPath, comparisonType, value, lastProperty);
     }
 
     /// <summary>
@@ -354,7 +355,7 @@ public static class ExpressionParser
 
         // 对于布尔类型，不需要 keyword 后缀
         // 构建 field == true 的查询
-        return BuildComparisonQuery<T>(fieldPath, nestedPath, ComparisonType.Equals, true);
+        return BuildComparisonQuery<T>(fieldPath, nestedPath, ComparisonType.Equals, true, lastProperty);
     }
 
     /// <summary>
@@ -405,20 +406,16 @@ public static class ExpressionParser
             {
                 properties.Insert(0, propertyInfo);
                 
-                // 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
-                // 如果没有配置 FieldName，需要将 PascalCase 转换为 camelCase
-                // 因为 Elasticsearch 客户端在序列化文档时会自动将属性名转换为 camelCase
-                var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
-                var fieldName = !string.IsNullOrEmpty(esFieldAttr?.FieldName) 
-                    ? esFieldAttr.FieldName 
-                    : ToCamelCase(propertyInfo.Name);
+                // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+                // 如果没有配置 FieldName，会自动将 PascalCase 转换为 camelCase
+                var fieldName = FieldNameHelper.GetIndexFieldName(propertyInfo);
                 
                 path.Insert(0, fieldName);
             }
             else
             {
                 // 非属性成员（如字段），将 PascalCase 转换为 camelCase
-                path.Insert(0, ToCamelCase(member.Member.Name));
+                path.Insert(0, FieldNameHelper.GetIndexFieldName(member.Member.Name));
             }
             
             current = member.Expression;
@@ -557,6 +554,7 @@ public static class ExpressionParser
     /// <param name="nestedPath">嵌套路径（如果字段在嵌套文档中）</param>
     /// <param name="comparisonType">比较类型</param>
     /// <param name="value">比较值</param>
+    /// <param name="lastProperty">最后一个属性的 PropertyInfo（用于获取字段类型信息）</param>
     /// <remarks>
     /// 对于嵌套查询：
     /// - nestedPath 是嵌套文档的路径（例如 "address"）
@@ -565,7 +563,7 @@ public static class ExpressionParser
     /// - 这是因为 Elasticsearch 嵌套查询中的字段路径需要是完整路径，而不是相对于嵌套路径的相对路径
     /// </remarks>
     private static Action<QueryDescriptor<T>> BuildComparisonQuery<T>(
-        string fieldPath, string? nestedPath, ComparisonType comparisonType, object value)
+        string fieldPath, string? nestedPath, ComparisonType comparisonType, object value, PropertyInfo? lastProperty)
     {
         return query =>
         {
@@ -579,13 +577,13 @@ public static class ExpressionParser
                 var fullFieldPath = $"{nestedPath}.{fieldPath}";
                 query.Nested(n => n
                     .Path(nestedPath)
-                    .Query(nq => ApplyComparisonToQuery(nq, fullFieldPath, comparisonType, value))
+                    .Query(nq => ApplyComparisonToQuery(nq, fullFieldPath, comparisonType, value, lastProperty))
                 );
             }
             else
             {
                 // 普通查询（非嵌套）
-                ApplyComparisonToQuery(query, fieldPath, comparisonType, value);
+                ApplyComparisonToQuery(query, fieldPath, comparisonType, value, lastProperty);
             }
         };
     }
@@ -594,23 +592,23 @@ public static class ExpressionParser
     /// 应用比较查询到 QueryDescriptor
     /// </summary>
     private static void ApplyComparisonToQuery<T>(
-        QueryDescriptor<T> query, string fieldPath, ComparisonType comparisonType, object value)
+        QueryDescriptor<T> query, string fieldPath, ComparisonType comparisonType, object value, PropertyInfo? lastProperty)
     {
         switch (comparisonType)
         {
             case ComparisonType.Equals:
-                ApplyEqualsQuery(query, fieldPath, value);
+                ApplyEqualsQuery(query, fieldPath, value, lastProperty);
                 break;
 
             case ComparisonType.NotEquals:
-                query.Bool(b => b.MustNot(mn => ApplyEqualsQuery(mn, fieldPath, value)));
+                query.Bool(b => b.MustNot(mn => ApplyEqualsQuery(mn, fieldPath, value, lastProperty)));
                 break;
 
             case ComparisonType.GreaterThan:
             case ComparisonType.GreaterThanOrEqual:
             case ComparisonType.LessThan:
             case ComparisonType.LessThanOrEqual:
-                ApplyRangeQuery(query, fieldPath, comparisonType, value);
+                ApplyRangeQuery(query, fieldPath, comparisonType, value, lastProperty);
                 break;
         }
     }
@@ -647,11 +645,10 @@ public static class ExpressionParser
     /// 根据索引构建规则：
     /// 1. 如果 FieldType == "keyword"，字段直接是 keyword 类型，不需要添加 .keyword
     /// 2. 如果 FieldType == "text" 或未指定，且 NeedKeyword == true，字段是 text 类型且有 .keyword 子字段，需要添加 .keyword
-    /// 3. 如果字段类型是 string，默认需要 .keyword（除非明确指定不需要）
+    /// 3. 枚举类型默认映射为 text 类型（带 keyword 子字段），所以默认需要添加 .keyword 后缀用于精确匹配
     /// </summary>
     internal static string GetFieldPathForExactMatch(string fieldPath, PropertyInfo? propertyInfo)
     {
-        // 如果不是字符串类型，不需要 keyword
         if (propertyInfo == null)
         {
             return fieldPath;
@@ -664,8 +661,8 @@ public static class ExpressionParser
             propertyType = propertyType.GetGenericArguments()[0];
         }
 
-        // 只有字符串类型才可能需要 keyword
-        if (propertyType != typeof(string))
+        // 只有字符串类型和枚举类型才可能需要 keyword
+        if (propertyType != typeof(string) && !TypeHelper.IsEnumType(propertyType))
         {
             return fieldPath;
         }
@@ -688,7 +685,7 @@ public static class ExpressionParser
             return $"{fieldPath}.keyword";
         }
 
-        // 默认情况下，string 类型字段如果是 text 类型，需要添加 .keyword
+        // 默认情况下，string 类型和枚举类型字段如果是 text 类型，需要添加 .keyword
         return fieldPath;
     }
 
@@ -721,9 +718,32 @@ public static class ExpressionParser
     /// <summary>
     /// 应用等值查询
     /// </summary>
-    private static void ApplyEqualsQuery<T>(QueryDescriptor<T> query, string fieldPath, object value)
+    private static void ApplyEqualsQuery<T>(QueryDescriptor<T> query, string fieldPath, object value, PropertyInfo? lastProperty)
     {
         var valueType = value.GetType();
+
+        // 检查字段类型是否为枚举类型
+        // 如果值是整数类型，但字段是枚举类型，则需要将整数转换为枚举，然后使用枚举的名称
+        Type? fieldType = null;
+        if (lastProperty != null)
+        {
+            fieldType = lastProperty.PropertyType;
+            // 处理可空类型
+            if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                fieldType = fieldType.GetGenericArguments()[0];
+            }
+        }
+
+        // 如果字段是枚举类型，但值是整数类型，需要将整数转换为枚举
+        if (fieldType != null && TypeHelper.IsEnumType(fieldType) && IsNumericType(valueType))
+        {
+            // 将整数转换为枚举，然后使用枚举的名称
+            var enumValue = Enum.ToObject(fieldType, value);
+            var enumName = enumValue?.ToString() ?? string.Empty;
+            query.Term(t => t.Field(fieldPath).Value(enumName));
+            return;
+        }
 
         if (valueType == typeof(DateTime))
         {
@@ -736,6 +756,13 @@ public static class ExpressionParser
             // 格式：yyyy-MM-ddTHH:mm:ss.fffzzz（例如：2024-01-14T10:00:00.000+08:00）
             var timeOffset = ((DateTimeOffset)value).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz");
             query.Term(t => t.Field(fieldPath).Value(timeOffset));
+        }
+        else if (TypeHelper.IsEnumType(valueType))
+        {
+            // 枚举类型：在 Elasticsearch 中存储的是枚举的名称（key），而不是数值
+            // 因此查询时也需要使用枚举的名称进行匹配
+            var enumName = value?.ToString() ?? string.Empty;
+            query.Term(t => t.Field(fieldPath).Value(enumName));
         }
         else if (IsNumericType(valueType))
         {
@@ -760,9 +787,27 @@ public static class ExpressionParser
     /// 应用范围查询（大于、小于、大于等于、小于等于）
     /// </summary>
     private static void ApplyRangeQuery<T>(
-        QueryDescriptor<T> query, string fieldPath, ComparisonType comparisonType, object value)
+        QueryDescriptor<T> query, string fieldPath, ComparisonType comparisonType, object value, PropertyInfo? lastProperty)
     {
         var valueType = value.GetType();
+
+        // 检查字段类型是否为枚举类型
+        Type? fieldType = null;
+        if (lastProperty != null)
+        {
+            fieldType = lastProperty.PropertyType;
+            // 处理可空类型
+            if (fieldType.IsGenericType && fieldType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                fieldType = fieldType.GetGenericArguments()[0];
+            }
+        }
+
+        // 如果字段是枚举类型，不支持范围查询
+        if (fieldType != null && TypeHelper.IsEnumType(fieldType))
+        {
+            throw new ArgumentException($"枚举类型不支持范围查询，请使用等值查询（==）或 In 查询（Contains）: {fieldType.Name}");
+        }
 
         // 日期时间类型
         if (value is DateTime dateTime)
@@ -790,6 +835,14 @@ public static class ExpressionParser
                 )
             );
             return;
+        }
+
+        // 枚举类型：不支持范围查询
+        // 枚举值之间没有明确的顺序关系，且 Elasticsearch 中枚举存储为字符串
+        // 如果需要范围查询，应该使用等值查询或 Terms 查询
+        if (TypeHelper.IsEnumType(valueType))
+        {
+            throw new ArgumentException($"枚举类型不支持范围查询，请使用等值查询（==）或 In 查询（Contains）: {valueType.Name}");
         }
 
         // 数字类型
@@ -959,6 +1012,13 @@ public static class ExpressionParser
         var firstValue = values.First();
         var valueType = firstValue.GetType();
 
+        // 枚举类型：在 Elasticsearch 中存储的是枚举的名称（key），而不是数值
+        // 因此查询时也需要使用枚举的名称进行匹配
+        if (TypeHelper.IsEnumType(valueType))
+        {
+            return values.Select(v => String(v?.ToString() ?? string.Empty)).ToArray();
+        }
+
         // 数字类型
         if (IsNumericType(valueType))
         {
@@ -1007,6 +1067,7 @@ public static class ExpressionParser
                type == typeof(float) || type == typeof(double) ||
                type == typeof(decimal);
     }
+
 
     /// <summary>
     /// 将表达式转换为 DNF（析取范式）格式
@@ -1167,6 +1228,7 @@ public static class ExpressionParser
             {
                 FieldPath = finalFieldPath,
                 NestedPath = nestedPath,
+                LastProperty = lastProperty,
                 ComparisonType = comparisonType.Value,
                 Value = value,
                 ConditionType = ConditionType.Comparison
@@ -1207,6 +1269,7 @@ public static class ExpressionParser
                     {
                         FieldPath = fieldPath,
                         NestedPath = nestedPath,
+                        LastProperty = lastProperty,
                         Value = value,
                         ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.Match,
                         WildcardPattern = IsKeywordField(lastProperty) ? $"*{value}*" : null,
@@ -1227,6 +1290,7 @@ public static class ExpressionParser
                     {
                         FieldPath = finalFieldPath,
                         NestedPath = nestedPath,
+                        LastProperty = lastProperty,
                         Value = enumerable,
                         ConditionType = ConditionType.Terms
                     };
@@ -1244,6 +1308,7 @@ public static class ExpressionParser
                     {
                         FieldPath = fieldPath,
                         NestedPath = nestedPath,
+                        LastProperty = lastProperty,
                         Value = value,
                         ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.MatchPhrasePrefix,
                         WildcardPattern = IsKeywordField(lastProperty) ? $"{value}*" : null,
@@ -1266,6 +1331,7 @@ public static class ExpressionParser
                     {
                         FieldPath = finalFieldPath,
                         NestedPath = nestedPath,
+                        LastProperty = lastProperty,
                         Value = value,
                         ConditionType = ConditionType.Wildcard,
                         WildcardPattern = $"*{value}"
@@ -1321,6 +1387,7 @@ public static class ExpressionParser
         {
             FieldPath = fieldPath,
             NestedPath = nestedPath,
+            LastProperty = lastProperty,
             ComparisonType = ComparisonType.Equals,
             Value = true,
             ConditionType = ConditionType.Comparison
@@ -1510,7 +1577,7 @@ public static class ExpressionParser
         switch (condition.ConditionType)
         {
             case ConditionType.Comparison:
-                ApplyComparisonToQuery(query, fieldPath, condition.ComparisonType!.Value, condition.Value!);
+                ApplyComparisonToQuery(query, fieldPath, condition.ComparisonType!.Value, condition.Value!, condition.LastProperty);
                 break;
 
             case ConditionType.Match:
@@ -1541,36 +1608,6 @@ public static class ExpressionParser
         }
     }
 
-    /// <summary>
-    /// 将 PascalCase 转换为 camelCase
-    /// 例如：NullableBoolField -> nullableBoolField
-    /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
-    /// Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
-    /// 因此查询时也需要使用 camelCase 字段名才能正确匹配
-    /// </summary>
-    /// <param name="pascalCase">PascalCase 格式的字符串</param>
-    /// <returns>camelCase 格式的字符串</returns>
-    private static string ToCamelCase(string pascalCase)
-    {
-        if (string.IsNullOrEmpty(pascalCase))
-        {
-            return pascalCase;
-        }
-
-        // 如果第一个字符是小写，直接返回
-        if (char.IsLower(pascalCase[0]))
-        {
-            return pascalCase;
-        }
-
-        // 将第一个字符转换为小写
-        if (pascalCase.Length == 1)
-        {
-            return char.ToLowerInvariant(pascalCase[0]).ToString();
-        }
-
-        return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
-    }
 }
 
 /// <summary>
@@ -1661,10 +1698,10 @@ internal class AndConditionGroup<T>
     public List<QueryCondition<T>> Conditions { get; } = new();
 }
 
-/// <summary>
-/// 查询条件
-/// 表示一个原子查询条件（如 x.Field == value, x.Field.Contains("text") 等）
-/// </summary>
+    /// <summary>
+    /// 查询条件
+    /// 表示一个原子查询条件（如 x.Field == value, x.Field.Contains("text") 等）
+    /// </summary>
 internal class QueryCondition<T>
 {
     /// <summary>
@@ -1676,6 +1713,11 @@ internal class QueryCondition<T>
     /// 嵌套路径（如果字段在嵌套文档中）
     /// </summary>
     public string? NestedPath { get; set; }
+
+    /// <summary>
+    /// 最后一个属性的 PropertyInfo（用于获取字段类型信息）
+    /// </summary>
+    public PropertyInfo? LastProperty { get; set; }
 
     /// <summary>
     /// 比较类型（仅用于比较查询）
