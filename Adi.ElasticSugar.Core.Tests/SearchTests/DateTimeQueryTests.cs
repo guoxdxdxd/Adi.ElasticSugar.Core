@@ -24,11 +24,11 @@ public class DateTimeQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-5), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-5)) },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-3), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-3)) },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-1), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-1)) },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(1), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(1)) },
-            new TestDocument { Id = 5, EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(3), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(3)) },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-5), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-5)) },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-3), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-3)) },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(-1), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(-1)) },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(1), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(1)) },
+            new TestDocument { Id = "5", EsDateTime = new DateTime(2024, 1, 15), DateTimeField = baseDate.AddDays(3), DateTimeOffsetField = new DateTimeOffset(baseDate.AddDays(3)) },
         });
 
         // 推送测试数据
@@ -222,9 +222,9 @@ public class DateTimeQueryTests : TestBase
         var targetDate = new DateTime(2024, 1, 15, 10, 0, 0);
         var documents = new[]
         {
-            new TestDocument { Id = 10, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableDateTimeField = targetDate },
-            new TestDocument { Id = 11, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableDateTimeField = null },
-            new TestDocument { Id = 12, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableDateTimeField = targetDate },
+            new TestDocument { Id = "10", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableDateTimeField = targetDate },
+            new TestDocument { Id = "11", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableDateTimeField = null },
+            new TestDocument { Id = "12", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableDateTimeField = targetDate },
         };
 
         await Client.PushDocumentsAsync(documents);

@@ -142,6 +142,25 @@ public class TestDocument : BaseEsModel
     /// </summary>
     public Guid? NullableGuidField { get; set; }
 
+    // ========== 枚举类型字段 ==========
+    
+    /// <summary>
+    /// 订单状态枚举类型（自动映射为 keyword）
+    /// 使用 FieldName 指定 ES 中的字段名为 "orderStatus"（驼峰命名）
+    /// </summary>
+    [EsField(FieldName = "orderStatus")]
+    public OrderStatus OrderStatus { get; set; }
+
+    /// <summary>
+    /// 可空订单状态枚举类型
+    /// </summary>
+    public OrderStatus? NullableOrderStatus { get; set; }
+
+    /// <summary>
+    /// 用户角色枚举类型（自动映射为 keyword）
+    /// </summary>
+    public UserRole UserRole { get; set; }
+
     // ========== 集合类型字段 ==========
     
     /// <summary>
@@ -239,5 +258,52 @@ public class NestedItem
     /// 是否可用
     /// </summary>
     public bool IsAvailable { get; set; }
+}
+
+/// <summary>
+/// 订单状态枚举（用于测试枚举类型查询）
+/// </summary>
+public enum OrderStatus
+{
+    /// <summary>
+    /// 待处理
+    /// </summary>
+    Pending = 0,
+
+    /// <summary>
+    /// 处理中
+    /// </summary>
+    Processing = 1,
+
+    /// <summary>
+    /// 已完成
+    /// </summary>
+    Completed = 2,
+
+    /// <summary>
+    /// 已取消
+    /// </summary>
+    Cancelled = 3
+}
+
+/// <summary>
+/// 用户角色枚举（用于测试枚举类型查询）
+/// </summary>
+public enum UserRole
+{
+    /// <summary>
+    /// 管理员
+    /// </summary>
+    Admin = 10,
+
+    /// <summary>
+    /// 普通用户
+    /// </summary>
+    User = 20,
+
+    /// <summary>
+    /// 访客
+    /// </summary>
+    Guest = 30
 }
 

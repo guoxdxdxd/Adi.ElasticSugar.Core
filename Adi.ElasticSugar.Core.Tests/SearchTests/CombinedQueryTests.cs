@@ -22,11 +22,11 @@ public class CombinedQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), TextField = "Product A", IntField = 10, DoubleField = 10.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 10) },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), TextField = "Product B", IntField = 20, DoubleField = 20.5, BoolField = false, DateTimeField = new DateTime(2024, 1, 12) },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), TextField = "Product C", IntField = 30, DoubleField = 30.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 14) },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), TextField = "Product D", IntField = 40, DoubleField = 40.5, BoolField = false, DateTimeField = new DateTime(2024, 1, 16) },
-            new TestDocument { Id = 5, EsDateTime = new DateTime(2024, 1, 15), TextField = "Product E", IntField = 50, DoubleField = 50.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 18) },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), TextField = "Product A", IntField = 10, DoubleField = 10.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 10) },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), TextField = "Product B", IntField = 20, DoubleField = 20.5, BoolField = false, DateTimeField = new DateTime(2024, 1, 12) },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), TextField = "Product C", IntField = 30, DoubleField = 30.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 14) },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), TextField = "Product D", IntField = 40, DoubleField = 40.5, BoolField = false, DateTimeField = new DateTime(2024, 1, 16) },
+            new TestDocument { Id = "5", EsDateTime = new DateTime(2024, 1, 15), TextField = "Product E", IntField = 50, DoubleField = 50.5, BoolField = true, DateTimeField = new DateTime(2024, 1, 18) },
         });
 
         // 推送测试数据

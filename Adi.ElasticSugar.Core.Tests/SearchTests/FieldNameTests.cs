@@ -23,13 +23,13 @@ public class FieldNameTests : TestBase
         _testDocuments.AddRange(new[]
         {
             // TextField 配置了 FieldName = "textField"
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 1", KeywordField = "KEYWORD-1" },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 1", KeywordField = "KEYWORD-1" },
             // KeywordField 配置了 FieldName = "keywordField"
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 2", KeywordField = "KEYWORD-2" },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 2", KeywordField = "KEYWORD-2" },
             // NullableStringField 没有配置 FieldName，应该使用 camelCase: "nullableStringField"
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 3", NullableStringField = "Nullable Value" },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 3", NullableStringField = "Nullable Value" },
             // TextOnlyField 配置了 NeedKeyword = false
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 4", TextOnlyField = "Text Only Value" },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test Value 4", TextOnlyField = "Text Only Value" },
         });
 
         // 推送测试数据
@@ -197,7 +197,7 @@ public class FieldNameTests : TestBase
         {
             new TestDocument
             {
-                Id = 10,
+                Id = "10",
                 EsDateTime = new DateTime(2024, 1, 15),
                 TextField = "Nested Test 1",
                 Address = new NestedAddress
@@ -210,7 +210,7 @@ public class FieldNameTests : TestBase
             },
             new TestDocument
             {
-                Id = 11,
+                Id = "11",
                 EsDateTime = new DateTime(2024, 1, 15),
                 TextField = "Nested Test 2",
                 Address = new NestedAddress

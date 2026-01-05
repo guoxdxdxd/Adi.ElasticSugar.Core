@@ -46,9 +46,9 @@ public static class ElasticsearchClientDocumentExtensions
         var response = await client.IndexAsync(document, idx =>
         {
             idx.Index(finalIndexName);
-            if (document.Id != null)
+            if (!string.IsNullOrEmpty(document.Id))
             {
-                idx.Id(document.Id.ToString()!);
+                idx.Id(document.Id);
             }
         });
 
@@ -159,9 +159,9 @@ public static class ElasticsearchClientDocumentExtensions
             .Index(indexName)
             .IndexMany(batch, (descriptor, document) =>
             {
-                if (document.Id != null)
+                if (!string.IsNullOrEmpty(document.Id))
                 {
-                    descriptor.Id(document.Id.ToString()!);
+                    descriptor.Id(document.Id);
                 }
             }));
 

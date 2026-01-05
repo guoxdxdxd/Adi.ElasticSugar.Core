@@ -22,11 +22,11 @@ public class BooleanQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", BoolField = true },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", BoolField = false },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", BoolField = true },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", BoolField = false },
-            new TestDocument { Id = 5, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test5", BoolField = true },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", BoolField = true },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", BoolField = false },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", BoolField = true },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", BoolField = false },
+            new TestDocument { Id = "5", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test5", BoolField = true },
         });
 
         // 推送测试数据
@@ -123,10 +123,10 @@ public class BooleanQueryTests : TestBase
         // Arrange
         var documents = new[]
         {
-            new TestDocument { Id = 10, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableBoolField = true },
-            new TestDocument { Id = 11, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableBoolField = null },
-            new TestDocument { Id = 12, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableBoolField = true },
-            new TestDocument { Id = 13, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", NullableBoolField = false },
+            new TestDocument { Id = "10", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableBoolField = true },
+            new TestDocument { Id = "11", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableBoolField = null },
+            new TestDocument { Id = "12", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableBoolField = true },
+            new TestDocument { Id = "13", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", NullableBoolField = false },
         };
 
         await Client.PushDocumentsAsync(documents);

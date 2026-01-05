@@ -22,10 +22,10 @@ public class StringQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), TextField = "Hello World", KeywordField = "STATUS-ACTIVE" },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), TextField = "Hello Elasticsearch", KeywordField = "STATUS-INACTIVE" },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), TextField = "World Peace", KeywordField = "STATUS-ACTIVE" },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), TextField = "Elasticsearch Test", KeywordField = "STATUS-PENDING" },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), TextField = "Hello World", KeywordField = "STATUS-ACTIVE" },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), TextField = "Hello Elasticsearch", KeywordField = "STATUS-INACTIVE" },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), TextField = "World Peace", KeywordField = "STATUS-ACTIVE" },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), TextField = "Elasticsearch Test", KeywordField = "STATUS-PENDING" },
         });
 
         // 推送测试数据
@@ -203,9 +203,9 @@ public class StringQueryTests : TestBase
         // Arrange
         var documents = new[]
         {
-            new TestDocument { Id = 10, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableStringField = "Value1" },
-            new TestDocument { Id = 11, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableStringField = null },
-            new TestDocument { Id = 12, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableStringField = "Value1" },
+            new TestDocument { Id = "10", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableStringField = "Value1" },
+            new TestDocument { Id = "11", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableStringField = null },
+            new TestDocument { Id = "12", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableStringField = "Value1" },
         };
 
         await Client.PushDocumentsAsync(documents);

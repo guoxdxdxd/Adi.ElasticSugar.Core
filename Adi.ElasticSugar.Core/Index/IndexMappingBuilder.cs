@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using Adi.ElasticSugar.Core.Models;
+using Adi.ElasticSugar.Core.Utils;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 
@@ -12,27 +13,6 @@ namespace Adi.ElasticSugar.Core.Index;
 /// </summary>
 internal static class IndexMappingBuilder
 {
-    /// <summary>
-    /// 获取字段在 Elasticsearch 中的字段名称
-    /// 如果字段配置了 FieldName，则使用配置的名称
-    /// 否则将属性名称从 PascalCase 转换为 camelCase
-    /// 因为 Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
-    /// </summary>
-    /// <param name="property">属性信息</param>
-    /// <param name="esFieldAttr">字段特性</param>
-    /// <returns>字段名称</returns>
-    private static string GetIndexFieldName(PropertyInfo property, EsFieldAttribute? esFieldAttr)
-    {
-        // 如果配置了 FieldName，优先使用配置的名称
-        if (!string.IsNullOrEmpty(esFieldAttr?.FieldName))
-        {
-            return esFieldAttr.FieldName;
-        }
-        
-        // 否则将属性名称从 PascalCase 转换为 camelCase
-        // 以匹配 Elasticsearch 客户端序列化时的字段命名约定
-        return ToCamelCase(property.Name);
-    }
 
     /// <summary>
     /// 构建类型映射配置
@@ -74,8 +54,8 @@ internal static class IndexMappingBuilder
         EsFieldAttribute? esFieldAttr)
     {
         var propertyType = property.PropertyType;
-        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
-        var fieldName = GetIndexFieldName(property, esFieldAttr);
+        // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = FieldNameHelper.GetIndexFieldName(property, esFieldAttr);
 
         // 判断是否为嵌套文档
         bool isNested = esFieldAttr?.IsNested ?? IsNestedType(propertyType);
@@ -150,8 +130,8 @@ internal static class IndexMappingBuilder
         Type? parentType = null)
     {
         var propertyType = property.PropertyType;
-        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
-        var fieldName = GetIndexFieldName(property, esFieldAttr);
+        // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = FieldNameHelper.GetIndexFieldName(property, esFieldAttr);
 
         if (IsNestedType(propertyType))
         {
@@ -217,8 +197,8 @@ internal static class IndexMappingBuilder
         Type? parentType = null)
     {
         var propertyType = property.PropertyType;
-        // 使用 GetIndexFieldName 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
-        var fieldName = GetIndexFieldName(property, esFieldAttr);
+        // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
+        var fieldName = FieldNameHelper.GetIndexFieldName(property, esFieldAttr);
 
         if (IsNestedType(propertyType))
         {
@@ -286,6 +266,13 @@ internal static class IndexMappingBuilder
         {
             BuildStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, esFieldAttr);
         }
+        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
+        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        else if (TypeHelper.IsEnumType(propertyType))
+        {
+            // 枚举类型使用与字符串类型相同的映射逻辑
+            BuildStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, esFieldAttr);
+        }
         else
         {
             // 其他类型
@@ -310,6 +297,13 @@ internal static class IndexMappingBuilder
         {
             BuildStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, esFieldAttr);
         }
+        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
+        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        else if (TypeHelper.IsEnumType(propertyType))
+        {
+            // 枚举类型使用与字符串类型相同的映射逻辑
+            BuildStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, esFieldAttr);
+        }
         else
         {
             // 其他类型
@@ -332,6 +326,13 @@ internal static class IndexMappingBuilder
         // 字符串类型特殊处理
         if (propertyType == typeof(string) || (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>) && propertyType.GetGenericArguments()[0] == typeof(string)))
         {
+            BuildStringPropertyMappingForNested(propertiesDescriptor, propertyName, esFieldAttr);
+        }
+        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
+        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        else if (TypeHelper.IsEnumType(propertyType))
+        {
+            // 枚举类型使用与字符串类型相同的映射逻辑
             BuildStringPropertyMappingForNested(propertiesDescriptor, propertyName, esFieldAttr);
         }
         else
@@ -995,6 +996,12 @@ internal static class IndexMappingBuilder
             type = type.GetGenericArguments()[0];
         }
 
+        // 枚举类型：在 Elasticsearch 中存储为字符串（枚举名称），所以映射为 keyword 类型
+        if (type.IsEnum)
+        {
+            return "keyword";
+        }
+
         return type switch
         {
             var t when t == typeof(byte) => "byte",
@@ -1016,35 +1023,6 @@ internal static class IndexMappingBuilder
         };
     }
 
-    /// <summary>
-    /// 将 PascalCase 转换为 camelCase
-    /// 例如：NullableBoolField -> nullableBoolField
-    /// 用于匹配 Elasticsearch 客户端序列化时的字段命名约定
-    /// Elasticsearch 客户端在序列化文档时会自动将 C# 的 PascalCase 属性名转换为 camelCase
-    /// 因此索引映射和查询时也需要使用 camelCase 字段名才能正确匹配
-    /// </summary>
-    /// <param name="pascalCase">PascalCase 格式的字符串</param>
-    /// <returns>camelCase 格式的字符串</returns>
-    private static string ToCamelCase(string pascalCase)
-    {
-        if (string.IsNullOrEmpty(pascalCase))
-        {
-            return pascalCase;
-        }
 
-        // 如果第一个字符是小写，直接返回
-        if (char.IsLower(pascalCase[0]))
-        {
-            return pascalCase;
-        }
-
-        // 将第一个字符转换为小写
-        if (pascalCase.Length == 1)
-        {
-            return char.ToLowerInvariant(pascalCase[0]).ToString();
-        }
-
-        return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
-    }
 }
 
