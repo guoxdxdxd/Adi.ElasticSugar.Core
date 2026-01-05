@@ -22,11 +22,11 @@ public class NumericQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), IntField = 10, LongField = 100L, DoubleField = 10.5, DecimalField = 10.5m },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), IntField = 20, LongField = 200L, DoubleField = 20.5, DecimalField = 20.5m },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), IntField = 30, LongField = 300L, DoubleField = 30.5, DecimalField = 30.5m },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), IntField = 40, LongField = 400L, DoubleField = 40.5, DecimalField = 40.5m },
-            new TestDocument { Id = 5, EsDateTime = new DateTime(2024, 1, 15), IntField = 50, LongField = 500L, DoubleField = 50.5, DecimalField = 50.5m },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), IntField = 10, LongField = 100L, DoubleField = 10.5, DecimalField = 10.5m },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), IntField = 20, LongField = 200L, DoubleField = 20.5, DecimalField = 20.5m },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), IntField = 30, LongField = 300L, DoubleField = 30.5, DecimalField = 30.5m },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), IntField = 40, LongField = 400L, DoubleField = 40.5, DecimalField = 40.5m },
+            new TestDocument { Id = "5", EsDateTime = new DateTime(2024, 1, 15), IntField = 50, LongField = 500L, DoubleField = 50.5, DecimalField = 50.5m },
         });
 
         // 推送测试数据
@@ -265,9 +265,9 @@ public class NumericQueryTests : TestBase
         // Arrange
         var documents = new[]
         {
-            new TestDocument { Id = 10, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableIntField = 100 },
-            new TestDocument { Id = 11, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableIntField = null },
-            new TestDocument { Id = 12, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableIntField = 100 },
+            new TestDocument { Id = "10", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableIntField = 100 },
+            new TestDocument { Id = "11", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableIntField = null },
+            new TestDocument { Id = "12", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableIntField = 100 },
         };
 
         await Client.PushDocumentsAsync(documents);

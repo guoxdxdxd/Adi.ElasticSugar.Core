@@ -24,7 +24,7 @@ public class NestedDocumentQueryTests : TestBase
         {
             new TestDocument
             {
-                Id = 1,
+                Id = "1",
                 EsDateTime = new DateTime(2024, 1, 15),
                 TextField = "Order 1",
                 Address = new NestedAddress
@@ -42,7 +42,7 @@ public class NestedDocumentQueryTests : TestBase
             },
             new TestDocument
             {
-                Id = 2,
+                Id = "2",
                 EsDateTime = new DateTime(2024, 1, 15),
                 TextField = "Order 2",
                 Address = new NestedAddress
@@ -60,7 +60,7 @@ public class NestedDocumentQueryTests : TestBase
             },
             new TestDocument
             {
-                Id = 3,
+                Id = "3",
                 EsDateTime = new DateTime(2024, 1, 15),
                 TextField = "Order 3",
                 Address = new NestedAddress
@@ -167,7 +167,7 @@ public class NestedDocumentQueryTests : TestBase
         // Arrange
         var document = new TestDocument
         {
-            Id = 100,
+            Id = "100",
             EsDateTime = new DateTime(2024, 1, 15),
             TextField = "Test Order",
             Address = new NestedAddress

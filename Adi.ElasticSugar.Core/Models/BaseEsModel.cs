@@ -12,7 +12,7 @@ public abstract class BaseEsModel
     /// <summary>
     /// 文档 ID
     /// </summary>
-    public object? Id { get; set; }
+    public string Id { get; set; } = string.Empty;
 
     /// <summary>
     /// ElasticSearch 时间字段

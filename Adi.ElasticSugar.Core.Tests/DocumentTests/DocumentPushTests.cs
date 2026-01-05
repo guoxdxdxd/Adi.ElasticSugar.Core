@@ -218,7 +218,7 @@ public class DocumentPushTests : TestBase
     {
         return new TestDocument
         {
-            Id = id,
+            Id = id.ToString(),
             EsDateTime = esDateTime ?? new DateTime(2024, 1, 15),
             TextField = $"Test Text {id}",
             KeywordField = $"KEYWORD-{id}",
@@ -239,7 +239,7 @@ public class DocumentPushTests : TestBase
     {
         return new TestDocument
         {
-            Id = id,
+            Id = id.ToString(),
             EsDateTime = new DateTime(2024, 1, 15),
             TextField = $"Test Text {id}",
             KeywordField = $"KEYWORD-{id}",

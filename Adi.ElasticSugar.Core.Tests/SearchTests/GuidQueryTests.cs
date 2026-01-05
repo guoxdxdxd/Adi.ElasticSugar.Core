@@ -25,10 +25,10 @@ public class GuidQueryTests : TestBase
         // 准备测试数据
         _testDocuments.AddRange(new[]
         {
-            new TestDocument { Id = 1, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", GuidField = _testGuid1 },
-            new TestDocument { Id = 2, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", GuidField = _testGuid2 },
-            new TestDocument { Id = 3, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", GuidField = _testGuid1 },
-            new TestDocument { Id = 4, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", GuidField = _testGuid3 },
+            new TestDocument { Id = "1", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", GuidField = _testGuid1 },
+            new TestDocument { Id = "2", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", GuidField = _testGuid2 },
+            new TestDocument { Id = "3", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", GuidField = _testGuid1 },
+            new TestDocument { Id = "4", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test4", GuidField = _testGuid3 },
         });
 
         // 推送测试数据
@@ -107,9 +107,9 @@ public class GuidQueryTests : TestBase
         var testGuid = Guid.NewGuid();
         var documents = new[]
         {
-            new TestDocument { Id = 10, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableGuidField = testGuid },
-            new TestDocument { Id = 11, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableGuidField = null },
-            new TestDocument { Id = 12, EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableGuidField = testGuid },
+            new TestDocument { Id = "10", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test1", NullableGuidField = testGuid },
+            new TestDocument { Id = "11", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test2", NullableGuidField = null },
+            new TestDocument { Id = "12", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test3", NullableGuidField = testGuid },
         };
 
         await Client.PushDocumentsAsync(documents);

@@ -2,6 +2,7 @@ using Adi.ElasticSugar.Core.Document;
 using Adi.ElasticSugar.Core.Search;
 using Adi.ElasticSugar.Core.Tests.Models;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using FluentAssertions;
 using Xunit;
 
@@ -25,7 +26,7 @@ public class EnumQueryTests : TestBase
         {
             new TestDocument 
             { 
-                Id = 1, 
+                Id = "1", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test1",
                 OrderStatus = OrderStatus.Pending,
@@ -33,7 +34,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 2, 
+                Id = "2", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test2",
                 OrderStatus = OrderStatus.Processing,
@@ -41,7 +42,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 3, 
+                Id = "3", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test3",
                 OrderStatus = OrderStatus.Completed,
@@ -49,7 +50,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 4, 
+                Id = "4", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test4",
                 OrderStatus = OrderStatus.Cancelled,
@@ -57,7 +58,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 5, 
+                Id = "5", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test5",
                 OrderStatus = OrderStatus.Pending,
@@ -87,9 +88,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = 5
+        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = "5"
         result.Documents.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 1, 5 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
     }
 
     /// <summary>
@@ -113,9 +114,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = 5
+        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = "5"
         result.Documents.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 1, 5 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
     }
 
     /// <summary>
@@ -136,7 +137,7 @@ public class EnumQueryTests : TestBase
         result.IsSuccess().Should().BeTrue();
         result.Documents.Should().HaveCount(1);
         result.Documents.First().OrderStatus.Should().Be(OrderStatus.Processing);
-        result.Documents.First().Id.Should().Be(2);
+        result.Documents.First().Id.Should().Be("2");
     }
 
     /// <summary>
@@ -155,9 +156,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = 2, 3, 4
+        result.Documents.Should().HaveCount(3); // Id = "2", 3, 4
         result.Documents.All(x => x.OrderStatus != OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 2, 3, 4 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "2", "3", "4" });
     }
 
     /// <summary>
@@ -178,9 +179,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = 1, 3, 5 (Pending 和 Completed)
+        result.Documents.Should().HaveCount(3); // Id = "1", 3, 5 (Pending 和 Completed)
         result.Documents.All(x => statuses.Contains(x.OrderStatus)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 1, 3, 5 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
     }
 
     /// <summary>
@@ -200,9 +201,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4); // Id = 1, 2, 3, 5 (Admin 和 User)
+        result.Documents.Should().HaveCount(4); // Id = "1", 2, 3, 5 (Admin 和 User)
         result.Documents.All(x => roles.Contains(x.UserRole)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 1, 2, 3, 5 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "5" });
     }
 
     /// <summary>
@@ -217,7 +218,7 @@ public class EnumQueryTests : TestBase
         {
             new TestDocument 
             { 
-                Id = 10, 
+                Id = "10", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test10",
                 OrderStatus = OrderStatus.Pending,
@@ -225,7 +226,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 11, 
+                Id = "11", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test11",
                 OrderStatus = OrderStatus.Pending,
@@ -233,7 +234,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 12, 
+                Id = "12", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test12",
                 OrderStatus = OrderStatus.Pending,
@@ -253,9 +254,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 10 和 Id = 12
+        result.Documents.Should().HaveCount(2); // Id = 10 和 Id = "12"
         result.Documents.All(x => x.NullableOrderStatus == OrderStatus.Processing).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 10, 12 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "10", "12" });
     }
 
     /// <summary>
@@ -269,7 +270,7 @@ public class EnumQueryTests : TestBase
         {
             new TestDocument 
             { 
-                Id = 20, 
+                Id = "20", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test20",
                 OrderStatus = OrderStatus.Pending,
@@ -277,7 +278,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 21, 
+                Id = "21", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test21",
                 OrderStatus = OrderStatus.Pending,
@@ -285,7 +286,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 22, 
+                Id = "22", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test22",
                 OrderStatus = OrderStatus.Pending,
@@ -305,9 +306,15 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 21 和 Id = 22
+        // 查询 NullableOrderStatus != OrderStatus.Processing 应该返回：
+        // - InitializeAsync 中插入的 5 条文档（Id = "1", "2", "3", "4", "5"），它们的 NullableOrderStatus 都是 null
+        // - 本测试中插入的 Id = "21"（NullableOrderStatus = Completed）
+        // - 本测试中插入的 Id = "22"（NullableOrderStatus = null）
+        // 总共 7 条记录（排除 Id = "20"，因为它的 NullableOrderStatus = Processing）
+        // 注意：在 C# 中，null != OrderStatus.Processing 返回 true，所以 null 值应该被包含在结果中
+        result.Documents.Should().HaveCount(7);
         result.Documents.All(x => x.NullableOrderStatus != OrderStatus.Processing).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 21, 22 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "21", "22" });
     }
 
     /// <summary>
@@ -321,7 +328,7 @@ public class EnumQueryTests : TestBase
         {
             new TestDocument 
             { 
-                Id = 30, 
+                Id = "30", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test30",
                 OrderStatus = OrderStatus.Pending,
@@ -329,7 +336,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 31, 
+                Id = "31", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test31",
                 OrderStatus = OrderStatus.Pending,
@@ -337,7 +344,7 @@ public class EnumQueryTests : TestBase
             },
             new TestDocument 
             { 
-                Id = 32, 
+                Id = "32", 
                 EsDateTime = new DateTime(2024, 1, 15), 
                 TextField = "Test32",
                 OrderStatus = OrderStatus.Pending,
@@ -349,26 +356,33 @@ public class EnumQueryTests : TestBase
         await RefreshIndexAsync("test-documents-2024-01");
 
         var indexName = "test-documents-2024-01";
-        var statuses = new[] { OrderStatus.Processing, OrderStatus.Completed };
+        // 使用可空枚举类型数组，以便可以直接使用 Contains 查询可空枚举字段
+        var statuses = new OrderStatus?[] { OrderStatus.Processing, OrderStatus.Completed };
 
         // Act
-        // 注意：对于可空枚举类型，需要使用 HasValue 和 Value 来访问枚举值
-        // 但在查询表达式中，ExpressionParser 应该能处理可空类型
-        // 这里使用显式转换来确保类型匹配
+        // 对于可空枚举类型，可以直接使用 Contains 查询
+        // 如果 NullableOrderStatus 是 null，Contains(null) 会返回 false（因为 statuses 中不包含 null）
+        // 如果 NullableOrderStatus 是 Processing 或 Completed，Contains 会返回 true
         var result = await Client.Search<TestDocument>(indexName)
-            .Where(x => x.NullableOrderStatus.HasValue && statuses.Contains(x.NullableOrderStatus.Value))
+            .Where(x => statuses.Contains(x.NullableOrderStatus))
             .ToListAsync();
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 30 和 Id = 31
-        result.Documents.All(x => statuses.Contains(x.NullableOrderStatus!.Value)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 30, 31 });
+        // 查询 NullableOrderStatus 在 [Processing, Completed] 中的记录应该返回：
+        // - 本测试中插入的 Id = "30"（NullableOrderStatus = Processing）
+        // - 本测试中插入的 Id = "31"（NullableOrderStatus = Completed）
+        // 总共 2 条记录（排除 Id = "32"，因为它的 NullableOrderStatus = null，不在列表中）
+        // 注意：InitializeAsync 中插入的文档（Id = "1", "2", "3", "4", "5"）的 NullableOrderStatus 都是 null，不在列表中，所以不会被包含
+        result.Documents.Should().HaveCount(2);
+        result.Documents.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "30", "31" });
     }
 
     /// <summary>
     /// 测试枚举类型不支持范围查询（应该抛出异常）
     /// 根据 ExpressionParser 的逻辑，枚举类型不支持 >, <, >=, <= 等范围查询
+    /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException
     /// </summary>
     [Fact]
     public async Task Where_OrderStatus_GreaterThan_ShouldThrowException()
@@ -377,19 +391,22 @@ public class EnumQueryTests : TestBase
         var indexName = "test-documents-2024-01";
 
         // Act & Assert
-        // 枚举类型不支持范围查询，应该抛出 ArgumentException
-        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        // 枚举类型不支持范围查询，异常会被包装为 UnexpectedTransportException
+        var exception = await Assert.ThrowsAsync<UnexpectedTransportException>(async () =>
         {
             await Client.Search<TestDocument>(indexName)
                 .Where(x => x.OrderStatus > OrderStatus.Pending)
                 .ToListAsync();
         });
 
-        exception.Message.Should().Contain("枚举类型不支持范围查询");
+        // 验证内部异常是 ArgumentException 且包含正确的错误消息
+        exception.InnerException.Should().BeOfType<ArgumentException>();
+        exception.InnerException!.Message.Should().Contain("枚举类型不支持范围查询");
     }
 
     /// <summary>
     /// 测试枚举类型不支持小于查询（应该抛出异常）
+    /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException
     /// </summary>
     [Fact]
     public async Task Where_OrderStatus_LessThan_ShouldThrowException()
@@ -398,18 +415,21 @@ public class EnumQueryTests : TestBase
         var indexName = "test-documents-2024-01";
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        var exception = await Assert.ThrowsAsync<UnexpectedTransportException>(async () =>
         {
             await Client.Search<TestDocument>(indexName)
                 .Where(x => x.OrderStatus < OrderStatus.Completed)
                 .ToListAsync();
         });
 
-        exception.Message.Should().Contain("枚举类型不支持范围查询");
+        // 验证内部异常是 ArgumentException 且包含正确的错误消息
+        exception.InnerException.Should().BeOfType<ArgumentException>();
+        exception.InnerException!.Message.Should().Contain("枚举类型不支持范围查询");
     }
 
     /// <summary>
     /// 测试枚举类型不支持大于等于查询（应该抛出异常）
+    /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException
     /// </summary>
     [Fact]
     public async Task Where_OrderStatus_GreaterThanOrEqual_ShouldThrowException()
@@ -418,18 +438,21 @@ public class EnumQueryTests : TestBase
         var indexName = "test-documents-2024-01";
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        var exception = await Assert.ThrowsAsync<UnexpectedTransportException>(async () =>
         {
             await Client.Search<TestDocument>(indexName)
                 .Where(x => x.OrderStatus >= OrderStatus.Processing)
                 .ToListAsync();
         });
 
-        exception.Message.Should().Contain("枚举类型不支持范围查询");
+        // 验证内部异常是 ArgumentException 且包含正确的错误消息
+        exception.InnerException.Should().BeOfType<ArgumentException>();
+        exception.InnerException!.Message.Should().Contain("枚举类型不支持范围查询");
     }
 
     /// <summary>
     /// 测试枚举类型不支持小于等于查询（应该抛出异常）
+    /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException
     /// </summary>
     [Fact]
     public async Task Where_OrderStatus_LessThanOrEqual_ShouldThrowException()
@@ -438,18 +461,21 @@ public class EnumQueryTests : TestBase
         var indexName = "test-documents-2024-01";
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        var exception = await Assert.ThrowsAsync<UnexpectedTransportException>(async () =>
         {
             await Client.Search<TestDocument>(indexName)
                 .Where(x => x.OrderStatus <= OrderStatus.Processing)
                 .ToListAsync();
         });
 
-        exception.Message.Should().Contain("枚举类型不支持范围查询");
+        // 验证内部异常是 ArgumentException 且包含正确的错误消息
+        exception.InnerException.Should().BeOfType<ArgumentException>();
+        exception.InnerException!.Message.Should().Contain("枚举类型不支持范围查询");
     }
 
     /// <summary>
     /// 测试可空枚举类型不支持范围查询（应该抛出异常）
+    /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException
     /// </summary>
     [Fact]
     public async Task Where_NullableOrderStatus_GreaterThan_ShouldThrowException()
@@ -458,14 +484,16 @@ public class EnumQueryTests : TestBase
         var indexName = "test-documents-2024-01";
 
         // Act & Assert
-        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+        var exception = await Assert.ThrowsAsync<UnexpectedTransportException>(async () =>
         {
             await Client.Search<TestDocument>(indexName)
                 .Where(x => x.NullableOrderStatus > OrderStatus.Pending)
                 .ToListAsync();
         });
 
-        exception.Message.Should().Contain("枚举类型不支持范围查询");
+        // 验证内部异常是 ArgumentException 且包含正确的错误消息
+        exception.InnerException.Should().BeOfType<ArgumentException>();
+        exception.InnerException!.Message.Should().Contain("枚举类型不支持范围查询");
     }
 
     /// <summary>
@@ -486,7 +514,7 @@ public class EnumQueryTests : TestBase
         // Assert
         result.IsSuccess().Should().BeTrue();
         result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be(1);
+        result.Documents.First().Id.Should().Be("1");
         result.Documents.First().OrderStatus.Should().Be(OrderStatus.Pending);
         result.Documents.First().TextField.Should().Be("Test1");
     }
@@ -508,9 +536,9 @@ public class EnumQueryTests : TestBase
 
         // Assert
         result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = 1, 3, 5
+        result.Documents.Should().HaveCount(3); // Id = "1", 3, 5
         result.Documents.All(x => x.OrderStatus == OrderStatus.Pending || x.OrderStatus == OrderStatus.Completed).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { 1, 3, 5 });
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
     }
 }
 
