@@ -180,6 +180,11 @@ public class TestDocument : BaseEsModel
     /// </summary>
     [EsField(FieldName = "address")]
     public NestedAddress Address { get; set; } = new();
+    /// <summary>
+    /// 嵌套文档（自动识别为 nested 类型）
+    /// </summary>
+    [EsField(FieldName = "address2")]
+    public NestedAddress Address2 { get; set; } = new();
 
     /// <summary>
     /// 嵌套文档集合（自动识别为 nested 类型）
