@@ -231,7 +231,7 @@ public static class ExpressionParser
             {
                 // 对于精确匹配（Terms 查询），需要判断是否使用 keyword
                 var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
-                return BuildTermsQuery<T>(finalFieldPath, nestedPath, enumerable);
+                return BuildTermsQuery<T>(finalFieldPath, nestedPath, enumerable, lastProperty);
             }
         }
 
@@ -645,7 +645,10 @@ public static class ExpressionParser
     /// 根据索引构建规则：
     /// 1. 如果 FieldType == "keyword"，字段直接是 keyword 类型，不需要添加 .keyword
     /// 2. 如果 FieldType == "text" 或未指定，且 NeedKeyword == true，字段是 text 类型且有 .keyword 子字段，需要添加 .keyword
-    /// 3. 枚举类型默认映射为 text 类型（带 keyword 子字段），所以默认需要添加 .keyword 后缀用于精确匹配
+    /// 3. 枚举类型：
+    ///    - 如果配置为数值类型（int/long/short/byte），不需要添加 .keyword（因为字段本身就是数值类型）
+    ///    - 如果配置为 keyword，不需要添加 .keyword（字段本身就是 keyword 类型）
+    ///    - 如果配置为 text 或未配置，且 NeedKeyword == true，需要添加 .keyword（字段是 text 类型，有 .keyword 子字段）
     /// </summary>
     internal static string GetFieldPathForExactMatch(string fieldPath, PropertyInfo? propertyInfo)
     {
@@ -661,31 +664,63 @@ public static class ExpressionParser
             propertyType = propertyType.GetGenericArguments()[0];
         }
 
-        // 只有字符串类型和枚举类型才可能需要 keyword
-        if (propertyType != typeof(string) && !TypeHelper.IsEnumType(propertyType))
-        {
-            return fieldPath;
-        }
-
         // 获取字段特性
         var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
 
-        // 如果 FieldType 明确指定为 "keyword"，字段本身就是 keyword 类型，不需要添加 .keyword
-        if (esFieldAttr?.FieldType?.ToLower() == "keyword")
+        // 枚举类型特殊处理
+        if (TypeHelper.IsEnumType(propertyType))
         {
+            // 如果配置为数值类型，不需要添加 .keyword（字段本身就是数值类型）
+            if (EnumFieldHelper.IsEnumStoredAsNumeric(propertyInfo, esFieldAttr))
+            {
+                return fieldPath;
+            }
+
+            // 获取字段类型：枚举类型未配置 FieldType 时，默认使用 "text"（与索引映射逻辑一致）
+            // 在 BuildEnumPropertyMappingForGeneric 中，如果 fieldType 不是数值类型，会调用 BuildStringPropertyMappingForGeneric
+            // BuildStringPropertyMappingForGeneric 使用 esFieldAttr?.FieldType ?? "text"，所以默认是 "text"
+            var fieldType = esFieldAttr?.FieldType?.ToLower();
+            
+            // 如果明确配置为 keyword，不需要添加 .keyword（字段本身就是 keyword 类型）
+            if (fieldType == "keyword")
+            {
+                return fieldPath;
+            }
+
+            // 如果配置为 text 或未配置（默认是 text），且 NeedKeyword == true（默认也是 true），需要添加 .keyword
+            // 这与 BuildStringPropertyMappingForGeneric 的逻辑一致
+            var actualFieldType = fieldType ?? "text";
+            var needKeyword = esFieldAttr?.NeedKeyword ?? true;
+            
+            if (actualFieldType == "text" && needKeyword)
+            {
+                return $"{fieldPath}.keyword";
+            }
+
+            // 如果配置为 text 但 NeedKeyword == false，不需要添加 .keyword
             return fieldPath;
         }
 
-        // 如果 FieldType 明确指定为 "text" 或未指定（默认是 text），且 NeedKeyword == true（默认也是 true），需要添加 .keyword
-        var fieldType = esFieldAttr?.FieldType?.ToLower() ?? "text";
-        var needKeyword = esFieldAttr?.NeedKeyword ?? true;
-
-        if (fieldType == "text" && needKeyword)
+        // 字符串类型处理
+        if (propertyType == typeof(string))
         {
-            return $"{fieldPath}.keyword";
+            // 如果 FieldType 明确指定为 "keyword"，字段本身就是 keyword 类型，不需要添加 .keyword
+            if (esFieldAttr?.FieldType?.ToLower() == "keyword")
+            {
+                return fieldPath;
+            }
+
+            // 如果 FieldType 明确指定为 "text" 或未指定（默认是 text），且 NeedKeyword == true（默认也是 true），需要添加 .keyword
+            var fieldType = esFieldAttr?.FieldType?.ToLower() ?? "text";
+            var needKeyword = esFieldAttr?.NeedKeyword ?? true;
+
+            if (fieldType == "text" && needKeyword)
+            {
+                return $"{fieldPath}.keyword";
+            }
         }
 
-        // 默认情况下，string 类型和枚举类型字段如果是 text 类型，需要添加 .keyword
+        // 其他类型不需要 keyword
         return fieldPath;
     }
 
@@ -735,14 +770,50 @@ public static class ExpressionParser
             }
         }
 
-        // 如果字段是枚举类型，但值是整数类型，需要将整数转换为枚举
-        if (fieldType != null && TypeHelper.IsEnumType(fieldType) && IsNumericType(valueType))
+        // 如果字段是枚举类型，需要根据字段配置决定使用枚举名称还是数值
+        if (fieldType != null && TypeHelper.IsEnumType(fieldType))
         {
-            // 将整数转换为枚举，然后使用枚举的名称
-            var enumValue = Enum.ToObject(fieldType, value);
-            var enumName = enumValue?.ToString() ?? string.Empty;
-            query.Term(t => t.Field(fieldPath).Value(enumName));
-            return;
+            // 获取字段特性
+            var esFieldAttr = lastProperty?.GetCustomAttribute<EsFieldAttribute>();
+            
+            // 如果配置为数值类型，使用枚举的数值进行查询
+            if (EnumFieldHelper.IsEnumStoredAsNumeric(lastProperty!, esFieldAttr))
+            {
+                // 如果值是整数类型，直接使用
+                if (IsNumericType(valueType))
+                {
+                    query.Term(t => t.Field(fieldPath).Value(Convert.ToInt64(value)));
+                    return;
+                }
+                
+                // 如果值是枚举类型，转换为数值
+                if (TypeHelper.IsEnumType(valueType))
+                {
+                    var enumValue = EnumFieldHelper.GetEnumValue(value, valueType);
+                    query.Term(t => t.Field(fieldPath).Value(enumValue));
+                    return;
+                }
+            }
+            else
+            {
+                // 如果配置为 keyword/text 或未配置，使用枚举的名称进行查询
+                // 如果值是整数类型，需要将整数转换为枚举，然后使用枚举的名称
+                if (IsNumericType(valueType))
+                {
+                    var enumValue = Enum.ToObject(fieldType, value);
+                    var enumName = enumValue?.ToString() ?? string.Empty;
+                    query.Term(t => t.Field(fieldPath).Value(enumName));
+                    return;
+                }
+                
+                // 如果值是枚举类型，使用枚举的名称
+                if (TypeHelper.IsEnumType(valueType))
+                {
+                    var enumName = value?.ToString() ?? string.Empty;
+                    query.Term(t => t.Field(fieldPath).Value(enumName));
+                    return;
+                }
+            }
         }
 
         if (valueType == typeof(DateTime))
@@ -756,13 +827,6 @@ public static class ExpressionParser
             // 格式：yyyy-MM-ddTHH:mm:ss.fffzzz（例如：2024-01-14T10:00:00.000+08:00）
             var timeOffset = ((DateTimeOffset)value).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz");
             query.Term(t => t.Field(fieldPath).Value(timeOffset));
-        }
-        else if (TypeHelper.IsEnumType(valueType))
-        {
-            // 枚举类型：在 Elasticsearch 中存储的是枚举的名称（key），而不是数值
-            // 因此查询时也需要使用枚举的名称进行匹配
-            var enumName = value?.ToString() ?? string.Empty;
-            query.Term(t => t.Field(fieldPath).Value(enumName));
         }
         else if (IsNumericType(valueType))
         {
@@ -803,10 +867,23 @@ public static class ExpressionParser
             }
         }
 
-        // 如果字段是枚举类型，不支持范围查询
+        // 如果字段是枚举类型，需要检查是否配置为数值类型
         if (fieldType != null && TypeHelper.IsEnumType(fieldType))
         {
-            throw new ArgumentException($"枚举类型不支持范围查询，请使用等值查询（==）或 In 查询（Contains）: {fieldType.Name}");
+            // 获取字段特性
+            var esFieldAttr = lastProperty?.GetCustomAttribute<EsFieldAttribute>();
+            
+            // 如果配置为数值类型，允许范围查询
+            if (EnumFieldHelper.IsEnumStoredAsNumeric(lastProperty!, esFieldAttr))
+            {
+                // 枚举配置为数值类型，可以使用范围查询
+                // 继续执行范围查询逻辑
+            }
+            else
+            {
+                // 如果配置为 keyword/text 或未配置，不支持范围查询
+                throw new ArgumentException($"枚举类型不支持范围查询，请使用等值查询（==）或 In 查询（Contains）。如果需要对枚举进行范围查询，请将字段配置为数值类型（如 FieldType = \"integer\" 或 \"long\"）: {fieldType.Name}");
+            }
         }
 
         // 日期时间类型
@@ -970,7 +1047,7 @@ public static class ExpressionParser
     /// 构建 Terms 查询（用于 In 查询）
     /// </summary>
     private static Action<QueryDescriptor<T>> BuildTermsQuery<T>(
-        string fieldPath, string? nestedPath, IEnumerable values)
+        string fieldPath, string? nestedPath, IEnumerable values, PropertyInfo? lastProperty = null)
     {
         var valueList = values.Cast<object>().ToList();
         if (!valueList.Any())
@@ -978,7 +1055,7 @@ public static class ExpressionParser
             return _ => { };
         }
 
-        var fieldValues = ConvertToFieldValues(valueList);
+        var fieldValues = ConvertToFieldValues(valueList, lastProperty);
         var termsQueryField = new TermsQueryField(fieldValues);
 
         return query =>
@@ -1001,8 +1078,11 @@ public static class ExpressionParser
 
     /// <summary>
     /// 将值列表转换为 FieldValue 数组
+    /// 根据字段配置决定枚举值使用名称还是数值
     /// </summary>
-    private static Elastic.Clients.Elasticsearch.FieldValue[] ConvertToFieldValues(List<object> values)
+    /// <param name="values">值列表</param>
+    /// <param name="propertyInfo">字段属性信息（可选，用于判断枚举字段配置）</param>
+    private static Elastic.Clients.Elasticsearch.FieldValue[] ConvertToFieldValues(List<object> values, PropertyInfo? propertyInfo = null)
     {
         if (!values.Any())
         {
@@ -1012,10 +1092,30 @@ public static class ExpressionParser
         var firstValue = values.First();
         var valueType = firstValue.GetType();
 
-        // 枚举类型：在 Elasticsearch 中存储的是枚举的名称（key），而不是数值
-        // 因此查询时也需要使用枚举的名称进行匹配
+        // 枚举类型：根据字段配置决定使用名称还是数值
         if (TypeHelper.IsEnumType(valueType))
         {
+            // 如果提供了字段信息，检查是否配置为数值类型
+            if (propertyInfo != null)
+            {
+                var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
+                
+                // 如果配置为数值类型，使用枚举的数值
+                if (EnumFieldHelper.IsEnumStoredAsNumeric(propertyInfo, esFieldAttr))
+                {
+                    return values.Select(v =>
+                    {
+                        if (v == null)
+                        {
+                            return Double(0);
+                        }
+                        var enumValue = EnumFieldHelper.GetEnumValue(v, valueType);
+                        return Double(enumValue);
+                    }).ToArray();
+                }
+            }
+            
+            // 默认使用枚举的名称（保持向后兼容）
             return values.Select(v => String(v?.ToString() ?? string.Empty)).ToArray();
         }
 
@@ -1598,7 +1698,7 @@ public static class ExpressionParser
                     var valueList = enumerable.Cast<object>().ToList();
                     if (valueList.Any())
                     {
-                        var fieldValues = ConvertToFieldValues(valueList);
+                        var fieldValues = ConvertToFieldValues(valueList, condition.LastProperty);
                         var termsQueryField = new TermsQueryField(fieldValues);
                         // 使用 Values 方法而不是 Terms 方法
                         query.Terms(ts => ts.Field(fieldPath).Terms(termsQueryField));

@@ -150,7 +150,7 @@ public class ElasticsearchIndexManager
     /// 清除指定索引的缓存
     /// </summary>
     /// <param name="indexName">索引名称</param>
-    public void ClearCache(string indexName)
+    public static void ClearCache(string indexName)
     {
         _indexCache.TryRemove(indexName, out _);
     }

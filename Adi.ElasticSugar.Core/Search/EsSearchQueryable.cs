@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.Json;
 using Adi.ElasticSugar.Core.Models;
 using Adi.ElasticSugar.Core.Utils;
 using Elastic.Clients.Elasticsearch;
@@ -129,7 +130,157 @@ public class EsSearchQueryable<T>
     public async Task<SearchResponse<T>> ToListAsync()
     {
         var descriptor = BuildSearchDescriptor();
+
         return await _client.SearchAsync<T>(descriptor);
+                
+        var response = await _client.SearchAsync<T>(descriptor);
+        
+        // 处理枚举字段的反序列化（如果枚举字段配置为数值类型）
+        return ProcessEnumFieldsDeserialization(response);
+    }
+
+    /// <summary>
+    /// 处理枚举字段的反序列化
+    /// 当枚举字段配置为数值类型时，ES 返回的是数字，需要手动转换为枚举值
+    /// </summary>
+    private SearchResponse<T> ProcessEnumFieldsDeserialization(SearchResponse<T> response)
+    {
+        if (response == null || !response.IsSuccess() || response.Documents == null)
+        {
+            return response!;
+        }
+
+        var documentType = typeof(T);
+        var properties = documentType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        
+        // 查找需要处理的枚举字段（配置为数值类型）
+        var enumPropertiesToProcess = new Dictionary<PropertyInfo, Type>();
+        
+        foreach (var property in properties)
+        {
+            var propertyType = property.PropertyType;
+            // 处理可空类型
+            Type? underlyingType = null;
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                underlyingType = propertyType.GetGenericArguments()[0];
+            }
+
+            var actualType = underlyingType ?? propertyType;
+
+            // 检查是否为枚举类型
+            if (actualType.IsEnum)
+            {
+                var esFieldAttr = property.GetCustomAttribute<EsFieldAttribute>();
+                
+                // 如果配置为数值类型，需要处理
+                if (EnumFieldHelper.IsEnumStoredAsNumeric(property, esFieldAttr))
+                {
+                    enumPropertiesToProcess[property] = actualType;
+                }
+            }
+        }
+
+        // 如果没有需要处理的枚举字段，直接返回
+        if (enumPropertiesToProcess.Count == 0)
+        {
+            return response;
+        }
+
+        // 处理每个文档
+        // 注意：我们需要从 Hits 中获取原始 Source 来手动反序列化
+        // 但由于 SearchResponse<T> 的 Documents 已经反序列化，如果失败可能已经抛出异常
+        // 我们需要尝试从 Source 重新获取值
+        
+        // 获取字段名映射（camelCase）
+        var fieldNameMap = new Dictionary<string, (PropertyInfo property, Type enumType)>();
+        foreach (var (property, enumType) in enumPropertiesToProcess)
+        {
+            var fieldName = System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(property.Name);
+            // 如果配置了 FieldName，使用配置的名称
+            var esFieldAttr = property.GetCustomAttribute<EsFieldAttribute>();
+            if (!string.IsNullOrEmpty(esFieldAttr?.FieldName))
+            {
+                fieldName = esFieldAttr.FieldName;
+            }
+            fieldNameMap[fieldName] = (property, enumType);
+        }
+
+        // 尝试从 Source 重新反序列化枚举字段
+        if (response.Hits != null)
+        {
+            var documentsList = response.Documents.ToList();
+            var hitsList = response.Hits.ToList();
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            for (int i = 0; i < hitsList.Count && i < documentsList.Count; i++)
+            {
+                var hit = hitsList[i];
+                var document = documentsList[i];
+                
+                if (hit == null || document == null)
+                {
+                    continue;
+                }
+
+                // 尝试从 Source 获取原始 JSON
+                // 注意：Elasticsearch 客户端的 Source 可能已经是反序列化的对象
+                // 我们需要通过反射访问 Source 属性
+                try
+                {
+                    // 使用反射获取 Source
+                    var sourceProperty = hit.GetType().GetProperty("Source");
+                    if (sourceProperty != null)
+                    {
+                        var source = sourceProperty.GetValue(hit);
+                        if (source != null)
+                        {
+                            // 将 Source 序列化为 JSON，然后重新解析
+                            var sourceJson = JsonSerializer.Serialize(source, jsonOptions);
+                            var sourceDoc = JsonDocument.Parse(sourceJson);
+                            
+                            // 处理每个枚举字段
+                            foreach (var (fieldName, (property, enumType)) in fieldNameMap)
+                            {
+                                if (sourceDoc.RootElement.TryGetProperty(fieldName, out var enumElement))
+                                {
+                                    if (enumElement.ValueKind == JsonValueKind.Number)
+                                    {
+                                        // 获取数值
+                                        var numericValue = enumElement.GetInt64();
+                                        
+                                        // 转换为枚举值
+                                        var enumValue = Enum.ToObject(enumType, numericValue);
+                                        
+                                        // 设置属性值
+                                        property.SetValue(document, enumValue);
+                                    }
+                                    else if (enumElement.ValueKind == JsonValueKind.Null)
+                                    {
+                                        // 处理可空类型
+                                        if (property.PropertyType.IsGenericType && 
+                                            property.PropertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                                        {
+                                            property.SetValue(document, null);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 如果无法从 Source 获取，忽略错误
+                    // 这可能意味着反序列化已经成功，或者 Source 不可访问
+                }
+            }
+        }
+
+        return response;
     }
 
     /// <summary>
@@ -142,7 +293,8 @@ public class EsSearchQueryable<T>
     {
         _skip = (pageIndex - 1) * pageSize;
         _take = pageSize;
-        return await ToListAsync();
+        var result = await ToListAsync();
+        return result ?? throw new InvalidOperationException("查询返回了 null 结果");
     }
 
     /// <summary>
