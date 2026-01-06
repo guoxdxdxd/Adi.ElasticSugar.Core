@@ -1,4 +1,7 @@
+using System.Reflection;
+using System.Text.Json;
 using Adi.ElasticSugar.Core.Models;
+using Adi.ElasticSugar.Core.Utils;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 
@@ -42,8 +45,11 @@ public static class ElasticsearchClientDocumentExtensions
         // 确定索引名称：优先使用用户指定的 indexName，否则使用创建索引时返回的索引名称
         var finalIndexName = createdIndexName;
 
+        // 根据字段配置序列化文档（处理枚举字段）
+        var serializedDocument = SerializeDocumentForEnumFields(document);
+
         // 推送文档
-        var response = await client.IndexAsync(document, idx =>
+        var response = await client.IndexAsync(serializedDocument, idx =>
         {
             idx.Index(finalIndexName);
             if (!string.IsNullOrEmpty(document.Id))
@@ -155,13 +161,23 @@ public static class ElasticsearchClientDocumentExtensions
         string indexName,
         List<T> batch) where T : BaseEsModel
     {
+        // 根据字段配置序列化文档（处理枚举字段）
+        // 创建包含原始文档和序列化后文档的元组列表，以便在推送时能获取原始文档的 ID
+        var serializedBatchWithOriginal = batch.Select((doc, index) => new
+        {
+            Original = doc,
+            Serialized = SerializeDocumentForEnumFields(doc)
+        }).ToList();
+
         var response = await client.BulkAsync(b => b
             .Index(indexName)
-            .IndexMany(batch, (descriptor, document) =>
+            .IndexMany(serializedBatchWithOriginal.Select(x => x.Serialized).ToList(), (descriptor, document) =>
             {
-                if (!string.IsNullOrEmpty(document.Id))
+                // 从对应的原始文档获取 ID（因为序列化后的文档可能是字典）
+                var item = serializedBatchWithOriginal.FirstOrDefault(x => ReferenceEquals(x.Serialized, document));
+                if (item != null && !string.IsNullOrEmpty(item.Original.Id))
                 {
-                    descriptor.Id(document.Id);
+                    descriptor.Id(item.Original.Id);
                 }
             }));
 
@@ -181,6 +197,103 @@ public static class ElasticsearchClientDocumentExtensions
         }
 
         return response;
+    }
+
+    /// <summary>
+    /// 根据字段的 EsFieldAttribute.FieldType 配置序列化文档
+    /// 如果枚举字段配置为数值类型（int/long/short/byte），将枚举值转换为数值
+    /// 如果配置为 keyword/text 或未配置，保持枚举名称（默认序列化行为）
+    /// 
+    /// 实现方式：使用反射创建字典，将需要转换的枚举字段值转换为数值
+    /// 其他字段保持原样，最后返回字典对象供 Elasticsearch 客户端使用
+    /// </summary>
+    /// <typeparam name="T">文档类型</typeparam>
+    /// <param name="document">要序列化的文档</param>
+    /// <returns>序列化后的文档对象（可能是原始对象或转换后的字典）</returns>
+    private static object SerializeDocumentForEnumFields<T>(T document) where T : BaseEsModel
+    {
+        if (document == null)
+        {
+            return document!;
+        }
+
+        var documentType = typeof(T);
+        var properties = documentType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        
+        // 检查是否有需要转换的枚举字段
+        var hasEnumFieldsToConvert = false;
+        var enumPropertiesToConvert = new List<PropertyInfo>();
+
+        foreach (var property in properties)
+        {
+            var propertyType = property.PropertyType;
+            // 处理可空类型
+            Type? underlyingType = null;
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                underlyingType = propertyType.GetGenericArguments()[0];
+            }
+
+            var actualType = underlyingType ?? propertyType;
+
+            // 检查是否为枚举类型
+            if (actualType.IsEnum)
+            {
+                var esFieldAttr = property.GetCustomAttribute<EsFieldAttribute>();
+                
+                // 如果配置为数值类型，需要转换
+                if (EnumFieldHelper.IsEnumStoredAsNumeric(property, esFieldAttr))
+                {
+                    hasEnumFieldsToConvert = true;
+                    enumPropertiesToConvert.Add(property);
+                }
+            }
+        }
+
+        // 如果没有需要转换的枚举字段，直接返回原文档
+        if (!hasEnumFieldsToConvert)
+        {
+            return document;
+        }
+
+        // 创建字典，将文档属性转换为字典键值对
+        // 对于需要转换的枚举字段，将枚举值转换为数值
+        var result = new Dictionary<string, object?>();
+        
+        foreach (var property in properties)
+        {
+            var value = property.GetValue(document);
+            var fieldName = System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(property.Name);
+            
+            // 如果该字段需要转换（枚举字段且配置为数值类型）
+            if (enumPropertiesToConvert.Contains(property))
+            {
+                if (value == null)
+                {
+                    result[fieldName] = null;
+                }
+                else
+                {
+                    // 获取枚举的数值
+                    var propertyType = property.PropertyType;
+                    Type? underlyingType = null;
+                    if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(Nullable<>))
+                    {
+                        underlyingType = propertyType.GetGenericArguments()[0];
+                    }
+                    var actualType = underlyingType ?? propertyType;
+                    var enumValue = EnumFieldHelper.GetEnumValue(value, actualType);
+                    result[fieldName] = enumValue;
+                }
+            }
+            else
+            {
+                // 不需要转换，直接使用原值
+                result[fieldName] = value;
+            }
+        }
+
+        return result;
     }
 }
 

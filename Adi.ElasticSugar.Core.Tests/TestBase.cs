@@ -1,3 +1,4 @@
+using Adi.ElasticSugar.Core.Index;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Microsoft.Extensions.Configuration;
@@ -152,6 +153,7 @@ public abstract class TestBase : IAsyncLifetime
                     try
                     {
                         await Client.Indices.DeleteAsync(indexName);
+                        ElasticsearchIndexManager.ClearCache(indexName.ToString());
                     }
                     catch
                     {

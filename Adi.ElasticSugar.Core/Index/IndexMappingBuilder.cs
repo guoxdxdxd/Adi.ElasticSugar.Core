@@ -266,12 +266,12 @@ internal static class IndexMappingBuilder
         {
             BuildStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, esFieldAttr);
         }
-        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
-        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        // 枚举类型特殊处理：根据 EsFieldAttribute.FieldType 配置决定映射类型
+        // 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+        // 如果配置为 keyword/text 或未配置，映射为 text（带 keyword 子字段）或 keyword
         else if (TypeHelper.IsEnumType(propertyType))
         {
-            // 枚举类型使用与字符串类型相同的映射逻辑
-            BuildStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, esFieldAttr);
+            BuildEnumPropertyMappingForGeneric(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
         }
         else
         {
@@ -297,12 +297,12 @@ internal static class IndexMappingBuilder
         {
             BuildStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, esFieldAttr);
         }
-        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
-        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        // 枚举类型特殊处理：根据 EsFieldAttribute.FieldType 配置决定映射类型
+        // 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+        // 如果配置为 keyword/text 或未配置，映射为 text（带 keyword 子字段）或 keyword
         else if (TypeHelper.IsEnumType(propertyType))
         {
-            // 枚举类型使用与字符串类型相同的映射逻辑
-            BuildStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, esFieldAttr);
+            BuildEnumPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
         }
         else
         {
@@ -328,12 +328,12 @@ internal static class IndexMappingBuilder
         {
             BuildStringPropertyMappingForNested(propertiesDescriptor, propertyName, esFieldAttr);
         }
-        // 枚举类型特殊处理：枚举类型在序列化时会被转换为字符串（枚举名称）
-        // 默认映射为 text 类型（带 keyword 子字段），如果显式指定 FieldType 为 "keyword" 则映射为纯 keyword 类型
+        // 枚举类型特殊处理：根据 EsFieldAttribute.FieldType 配置决定映射类型
+        // 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+        // 如果配置为 keyword/text 或未配置，映射为 text（带 keyword 子字段）或 keyword
         else if (TypeHelper.IsEnumType(propertyType))
         {
-            // 枚举类型使用与字符串类型相同的映射逻辑
-            BuildStringPropertyMappingForNested(propertiesDescriptor, propertyName, esFieldAttr);
+            BuildEnumPropertyMappingForNested(propertiesDescriptor, propertyName, propertyType, esFieldAttr);
         }
         else
         {
@@ -351,7 +351,7 @@ internal static class IndexMappingBuilder
         EsFieldAttribute? esFieldAttr)
     {
         var needKeyword = esFieldAttr?.NeedKeyword ?? true;
-        var fieldType = esFieldAttr?.FieldType ?? "text";
+        var fieldType = esFieldAttr?.FieldType?.ToLower() ?? "text";
         var analyzer = esFieldAttr?.Analyzer;
         var searchAnalyzer = esFieldAttr?.SearchAnalyzer;
 
@@ -396,6 +396,42 @@ internal static class IndexMappingBuilder
     }
 
     /// <summary>
+    /// 使用 dynamic 构建枚举类型属性映射（用于嵌套类型，处理类型转换问题）
+    /// 根据 EsFieldAttribute.FieldType 配置决定映射类型：
+    /// - 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+    /// - 如果配置为 keyword，映射为纯 keyword 类型
+    /// - 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+    /// 
+    /// 注意：枚举类型未配置 FieldType 时，默认映射为 text 类型（带 keyword 子字段），
+    /// 这与 BuildStringPropertyMappingForNestedDynamic 的默认行为一致
+    /// </summary>
+    private static void BuildEnumPropertyMappingForNestedDynamic(
+        dynamic propertiesDescriptor,
+        string propertyName,
+        Type propertyType,
+        EsFieldAttribute? esFieldAttr)
+    {
+        // 获取枚举字段类型（优先使用配置的 FieldType）
+        // 注意：这里不设置默认值，让 BuildStringPropertyMappingForNestedDynamic 来处理默认值逻辑
+        var fieldType = esFieldAttr?.FieldType?.ToLower();
+
+        // 判断是否为数值类型
+        if (fieldType != null && EnumFieldHelper.IsNumericFieldType(fieldType))
+        {
+            // 数值类型：映射为对应的数值类型
+            BuildNonStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, fieldType, esFieldAttr);
+        }
+        else
+        {
+            // 文本类型：使用与字符串类型相同的映射逻辑
+            // 如果配置为 keyword，映射为纯 keyword 类型
+            // 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+            // BuildStringPropertyMappingForNestedDynamic 会处理默认值（未配置时默认为 text）
+            BuildStringPropertyMappingForNestedDynamic(propertiesDescriptor, propertyName, esFieldAttr);
+        }
+    }
+
+    /// <summary>
     /// 构建字符串类型属性映射（用于嵌套类型，使用 PropertiesDescriptor&lt;object&gt;）
     /// </summary>
     private static void BuildStringPropertyMappingForNested(
@@ -404,7 +440,7 @@ internal static class IndexMappingBuilder
         EsFieldAttribute? esFieldAttr)
     {
         var needKeyword = esFieldAttr?.NeedKeyword ?? true;
-        var fieldType = esFieldAttr?.FieldType ?? "text";
+        var fieldType = esFieldAttr?.FieldType?.ToLower() ?? "text";
         var analyzer = esFieldAttr?.Analyzer;
         var searchAnalyzer = esFieldAttr?.SearchAnalyzer;
 
@@ -446,6 +482,42 @@ internal static class IndexMappingBuilder
     }
 
     /// <summary>
+    /// 构建枚举类型属性映射（用于嵌套类型，使用 PropertiesDescriptor&lt;object&gt;）
+    /// 根据 EsFieldAttribute.FieldType 配置决定映射类型：
+    /// - 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+    /// - 如果配置为 keyword，映射为纯 keyword 类型
+    /// - 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+    /// 
+    /// 注意：枚举类型未配置 FieldType 时，默认映射为 text 类型（带 keyword 子字段），
+    /// 这与 BuildStringPropertyMappingForNested 的默认行为一致
+    /// </summary>
+    private static void BuildEnumPropertyMappingForNested(
+        PropertiesDescriptor<object> propertiesDescriptor,
+        string propertyName,
+        Type propertyType,
+        EsFieldAttribute? esFieldAttr)
+    {
+        // 获取枚举字段类型（优先使用配置的 FieldType）
+        // 注意：这里不设置默认值，让 BuildStringPropertyMappingForNested 来处理默认值逻辑
+        var fieldType = esFieldAttr?.FieldType?.ToLower();
+
+        // 判断是否为数值类型
+        if (fieldType != null && EnumFieldHelper.IsNumericFieldType(fieldType))
+        {
+            // 数值类型：映射为对应的数值类型
+            BuildNonStringPropertyMappingForNested(propertiesDescriptor, propertyName, fieldType, esFieldAttr);
+        }
+        else
+        {
+            // 文本类型：使用与字符串类型相同的映射逻辑
+            // 如果配置为 keyword，映射为纯 keyword 类型
+            // 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+            // BuildStringPropertyMappingForNested 会处理默认值（未配置时默认为 text）
+            BuildStringPropertyMappingForNested(propertiesDescriptor, propertyName, esFieldAttr);
+        }
+    }
+
+    /// <summary>
     /// 构建字符串类型属性映射（泛型版本）
     /// </summary>
     private static void BuildStringPropertyMappingForGeneric<T>(
@@ -454,7 +526,7 @@ internal static class IndexMappingBuilder
         EsFieldAttribute? esFieldAttr)
     {
         var needKeyword = esFieldAttr?.NeedKeyword ?? true;
-        var fieldType = esFieldAttr?.FieldType ?? "text";
+        var fieldType = esFieldAttr?.FieldType?.ToLower() ?? "text";
         var analyzer = esFieldAttr?.Analyzer;
         var searchAnalyzer = esFieldAttr?.SearchAnalyzer;
 
@@ -492,6 +564,43 @@ internal static class IndexMappingBuilder
                     t.Fields(f => f.Keyword("keyword", k => { }));
                 }
             });
+        }
+    }
+
+    /// <summary>
+    /// 构建枚举类型属性映射（泛型版本）
+    /// 根据 EsFieldAttribute.FieldType 配置决定映射类型：
+    /// - 如果配置为数值类型（int/long/short/byte），映射为对应的数值类型
+    /// - 如果配置为 keyword，映射为纯 keyword 类型
+    /// - 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+    /// 
+    /// 注意：枚举类型未配置 FieldType 时，默认映射为 text 类型（带 keyword 子字段），
+    /// 这与 BuildStringPropertyMappingForGeneric 的默认行为一致
+    /// </summary>
+    private static void BuildEnumPropertyMappingForGeneric<T>(
+        PropertiesDescriptor<T> propertiesDescriptor,
+        string propertyName,
+        Type propertyType,
+        EsFieldAttribute? esFieldAttr)
+    {
+        // 获取枚举字段类型（优先使用配置的 FieldType）
+        // 注意：这里不设置默认值，让 BuildStringPropertyMappingForGeneric 来处理默认值逻辑
+        // 这样可以确保枚举类型和字符串类型的默认行为一致
+        var fieldType = esFieldAttr?.FieldType?.ToLower();
+
+        // 判断是否为数值类型
+        if (fieldType != null && EnumFieldHelper.IsNumericFieldType(fieldType))
+        {
+            // 数值类型：映射为对应的数值类型
+            BuildNonStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, fieldType, esFieldAttr);
+        }
+        else
+        {
+            // 文本类型：使用与字符串类型相同的映射逻辑
+            // 如果配置为 keyword，映射为纯 keyword 类型
+            // 如果配置为 text 或未配置，映射为 text 类型（带 keyword 子字段）
+            // BuildStringPropertyMappingForGeneric 会处理默认值（未配置时默认为 text）
+            BuildStringPropertyMappingForGeneric(propertiesDescriptor, propertyName, esFieldAttr);
         }
     }
 
