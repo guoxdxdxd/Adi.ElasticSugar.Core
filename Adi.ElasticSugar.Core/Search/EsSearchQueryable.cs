@@ -133,10 +133,10 @@ public class EsSearchQueryable<T>
 
         return await _client.SearchAsync<T>(descriptor);
                 
-        var response = await _client.SearchAsync<T>(descriptor);
+        // var response = await _client.SearchAsync<T>(descriptor);
         
-        // 处理枚举字段的反序列化（如果枚举字段配置为数值类型）
-        return ProcessEnumFieldsDeserialization(response);
+        // // 处理枚举字段的反序列化（如果枚举字段配置为数值类型）
+        // return ProcessEnumFieldsDeserialization(response);
     }
 
     /// <summary>

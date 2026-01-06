@@ -24,6 +24,366 @@
 - ✅ **排序和分页**：支持 `OrderBy`、`OrderByDesc`、`Skip`、`Take` 等方法
 - ✅ **总记录数**：支持 `TrackTotalHits` 获取准确的分页总数
 
+## 项目结构
+
+### 目录结构
+
+```
+Adi.ElasticSugar.Core/
+├── Models/                          # 数据模型和特性
+│   ├── BaseEsModel.cs              # ElasticSearch 文档基类
+│   ├── EsFieldAttribute.cs         # 字段映射特性
+│   └── EsIndexAttribute.cs         # 索引配置特性
+│
+├── Index/                           # 索引管理模块
+│   ├── ElasticsearchClientIndexExtensions.cs  # 索引扩展方法
+│   ├── ElasticsearchIndexManager.cs           # 索引管理器（缓存、创建、删除）
+│   ├── IndexMappingBuilder.cs                # 索引映射构建器（自动生成字段映射）
+│   └── IndexName/                            # 索引名称生成
+│       ├── IIndexNameGenerator.cs            # 索引名称生成器接口
+│       ├── IndexFormat.cs                    # 索引格式枚举
+│       ├── IndexNameGenerator.cs             # 索引名称生成器（统一入口）
+│       ├── YearIndexNameGenerator.cs         # 年格式生成器
+│       └── YearMonthIndexNameGenerator.cs    # 年月格式生成器
+│
+├── Search/                          # 查询构建模块
+│   ├── ElasticsearchClientExtensions.cs     # 查询扩展方法
+│   ├── EsQueryable.cs                        # 基础查询构建器
+│   ├── EsQueryableExtensions.cs             # 查询构建器扩展方法
+│   ├── EsSearchQueryable.cs                  # 搜索查询构建器（完整功能）
+│   └── ExpressionParser.cs                   # 表达式树解析器（Lambda转ES查询）
+│
+├── Document/                        # 文档推送模块
+│   └── ElasticsearchClientDocumentExtensions.cs  # 文档推送扩展方法
+│
+└── Utils/                           # 工具类
+    ├── EnumDeserializationHelper.cs         # 枚举反序列化辅助
+    ├── EnumFieldHelper.cs                   # 枚举字段辅助
+    ├── FieldNameHelper.cs                   # 字段名辅助（PascalCase转camelCase）
+    ├── StringHelper.cs                      # 字符串辅助
+    └── TypeHelper.cs                         # 类型辅助
+```
+
+### 架构说明
+
+项目采用模块化设计，各模块职责清晰：
+
+- **Models**: 定义数据模型基类和配置特性，提供元数据支持
+- **Index**: 负责索引的创建、管理和映射配置的自动生成
+- **Search**: 提供链式查询构建器，将 LINQ 表达式转换为 Elasticsearch 查询
+- **Document**: 处理文档的推送（单个和批量），自动处理索引创建
+- **Utils**: 提供各种辅助工具，如字段名转换、枚举处理等
+
+## 类图
+
+### 核心类关系图
+
+```mermaid
+classDiagram
+    class BaseEsModel {
+        <<abstract>>
+        +string Id
+        +DateTime EsDateTime
+        +GetIndexName() string
+        +GetIndexNameFromAttribute() string
+    }
+    
+    class EsIndexAttribute {
+        +string IndexPrefix
+        +IndexFormat Format
+        +Type CustomGeneratorType
+    }
+    
+    class EsFieldAttribute {
+        +string FieldType
+        +bool IsNested
+        +bool NeedKeyword
+        +bool Ignore
+        +string Analyzer
+        +string FieldName
+    }
+    
+    class ElasticsearchClient {
+        <<external>>
+    }
+    
+    class EsSearchQueryable~T~ {
+        -ElasticsearchClient _client
+        -string _index
+        -List~Expression~ _whereExpressions
+        +Where(Expression) EsSearchQueryable
+        +WhereIf(bool, Expression) EsSearchQueryable
+        +OrderBy(Expression) EsSearchQueryable
+        +OrderByDesc(Expression) EsSearchQueryable
+        +Skip(int) EsSearchQueryable
+        +Take(int) EsSearchQueryable
+        +TrackTotalHits() EsSearchQueryable
+        +ToListAsync() Task~SearchResponse~
+        +ToPageAsync(int, int) Task~SearchResponse~
+    }
+    
+    class ExpressionParser {
+        <<static>>
+        +ParseExpression~T~(Expression) Action
+    }
+    
+    class IndexMappingBuilder {
+        <<static>>
+        +BuildMapping~T~(PropertiesDescriptor) void
+    }
+    
+    class IndexNameGenerator {
+        <<static>>
+        +RegisterGenerator~T~(IIndexNameGenerator) void
+        +GenerateIndexNameFromAttribute~T~(T) string
+        +GenerateIndexPatternFromAttribute~T~() string
+    }
+    
+    class IIndexNameGenerator~T~ {
+        <<interface>>
+        +GenerateIndexName(T) string
+        +GenerateIndexName(DateTime) string
+        +GenerateIndexPattern() string
+    }
+    
+    class ElasticsearchIndexManager {
+        -ElasticsearchClient _client
+        -ConcurrentDictionary~string, bool~ _indexCache
+        +CreateIndexIfNotExistsAsync~T~(string) Task~bool~
+        +IndexExistsAsync(string) Task~bool~
+        +DeleteIndexAsync(string) Task~bool~
+        +ClearCache() void
+    }
+    
+    class ElasticsearchClientDocumentExtensions {
+        <<static>>
+        +PushDocumentAsync~T~(T) Task~IndexResponse~
+        +PushDocumentsAsync~T~(IEnumerable~T~) Task~BulkResponse~
+    }
+    
+    class ElasticsearchClientIndexExtensions {
+        <<static>>
+        +IndexManager() ElasticsearchIndexManager
+        +CreateIndexForDocumentAsync~T~(T) Task~string~
+        +CreateIndexesForDocumentsAsync~T~(IEnumerable~T~) Task~Dictionary~
+    }
+    
+    class ElasticsearchClientExtensions {
+        <<static>>
+        +Search~T~() EsSearchQueryable~T~
+        +Search~T~(string) EsSearchQueryable~T~
+    }
+    
+    BaseEsModel <|-- UserDocument : 继承
+    UserDocument ..> EsIndexAttribute : 使用
+    UserDocument ..> EsFieldAttribute : 使用
+    
+    EsSearchQueryable~T~ --> ExpressionParser : 使用
+    EsSearchQueryable~T~ --> ElasticsearchClient : 使用
+    
+    ExpressionParser --> FieldNameHelper : 使用
+    ExpressionParser --> EnumFieldHelper : 使用
+    
+    IndexMappingBuilder --> FieldNameHelper : 使用
+    IndexMappingBuilder --> EnumFieldHelper : 使用
+    
+    IndexNameGenerator --> IIndexNameGenerator~T~ : 使用
+    IIndexNameGenerator~T~ <|.. YearIndexNameGenerator~T~ : 实现
+    IIndexNameGenerator~T~ <|.. YearMonthIndexNameGenerator~T~ : 实现
+    
+    ElasticsearchIndexManager --> IndexMappingBuilder : 使用
+    ElasticsearchIndexManager --> IndexNameGenerator : 使用
+    
+    ElasticsearchClientDocumentExtensions --> ElasticsearchIndexManager : 使用
+    ElasticsearchClientIndexExtensions --> ElasticsearchIndexManager : 使用
+    ElasticsearchClientExtensions --> EsSearchQueryable~T~ : 创建
+```
+
+### 查询构建流程
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant EsSearchQueryable
+    participant ExpressionParser
+    participant ElasticsearchClient
+    participant Elasticsearch
+    
+    User->>EsSearchQueryable: Search<T>("index*")
+    User->>EsSearchQueryable: Where(x => x.Status == 1)
+    User->>EsSearchQueryable: OrderBy(x => x.CreatedDate)
+    User->>EsSearchQueryable: Skip(0).Take(20)
+    User->>EsSearchQueryable: ToListAsync()
+    
+    EsSearchQueryable->>ExpressionParser: ParseExpression(lambda)
+    ExpressionParser->>ExpressionParser: ConvertToDnf(expression)
+    ExpressionParser->>ExpressionParser: BuildQueryFromDnf()
+    ExpressionParser-->>EsSearchQueryable: Action<QueryDescriptor>
+    
+    EsSearchQueryable->>EsSearchQueryable: BuildSearchDescriptor()
+    EsSearchQueryable->>ElasticsearchClient: SearchAsync(descriptor)
+    ElasticsearchClient->>Elasticsearch: HTTP Request
+    Elasticsearch-->>ElasticsearchClient: SearchResponse
+    ElasticsearchClient-->>EsSearchQueryable: SearchResponse<T>
+    EsSearchQueryable->>EsSearchQueryable: ProcessEnumFieldsDeserialization()
+    EsSearchQueryable-->>User: SearchResponse<T>
+```
+
+### 文档推送流程
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant DocumentExtensions
+    participant IndexManager
+    participant IndexMappingBuilder
+    participant ElasticsearchClient
+    participant Elasticsearch
+    
+    User->>DocumentExtensions: PushDocumentAsync(document)
+    DocumentExtensions->>DocumentExtensions: document.GetIndexNameFromAttribute()
+    DocumentExtensions->>IndexManager: CreateIndexIfNotExistsAsync()
+    
+    IndexManager->>IndexManager: IndexExistsAsync() [检查缓存]
+    alt 索引不存在
+        IndexManager->>ElasticsearchClient: Indices.Create()
+        ElasticsearchClient->>IndexMappingBuilder: BuildMapping<T>()
+        IndexMappingBuilder->>IndexMappingBuilder: 分析类型特性
+        IndexMappingBuilder-->>ElasticsearchClient: PropertiesDescriptor
+        ElasticsearchClient->>Elasticsearch: 创建索引请求
+        Elasticsearch-->>ElasticsearchClient: 创建成功
+        IndexManager->>IndexManager: 更新缓存
+    end
+    
+    DocumentExtensions->>DocumentExtensions: SerializeDocumentForEnumFields()
+    DocumentExtensions->>ElasticsearchClient: IndexAsync(document)
+    ElasticsearchClient->>Elasticsearch: 推送文档请求
+    Elasticsearch-->>ElasticsearchClient: IndexResponse
+    ElasticsearchClient-->>DocumentExtensions: IndexResponse
+    DocumentExtensions-->>User: IndexResponse
+```
+
+## 数据模型关系图（ER图）
+
+### 文档模型关系
+
+```mermaid
+erDiagram
+    BaseEsModel ||--o{ UserDocument : "继承"
+    BaseEsModel ||--o{ OrderDocument : "继承"
+    BaseEsModel ||--o{ ProductDocument : "继承"
+    
+    BaseEsModel {
+        string Id PK
+        DateTime EsDateTime
+    }
+    
+    UserDocument {
+        string UserName
+        string Email
+        int Age
+        DateTime CreatedDate
+        UserRole Role
+        NestedAddress Address
+        List~NestedItem~ Items
+    }
+    
+    OrderDocument {
+        string OrderNo
+        decimal Amount
+        DateTime CreatedDate
+        OrderStatus Status
+        NestedAddress ShippingAddress
+    }
+    
+    ProductDocument {
+        string ProductName
+        decimal Price
+        int Stock
+        List~string~ Tags
+    }
+    
+    NestedAddress {
+        string Street
+        string City
+        string ZipCode
+        string Country
+    }
+    
+    NestedItem {
+        string ProductName
+        int Quantity
+        decimal Price
+        bool IsAvailable
+    }
+    
+    OrderStatus {
+        int Pending
+        int Processing
+        int Completed
+        int Cancelled
+    }
+    
+    UserRole {
+        int Admin
+        int User
+        int Guest
+    }
+    
+    UserDocument ||--o{ NestedAddress : "包含"
+    UserDocument ||--o{ NestedItem : "包含多个"
+    OrderDocument ||--o{ NestedAddress : "包含"
+    UserDocument }o--|| OrderStatus : "关联"
+    UserDocument }o--|| UserRole : "关联"
+    OrderDocument }o--|| OrderStatus : "关联"
+```
+
+### 索引与文档关系
+
+```mermaid
+erDiagram
+    EsIndexAttribute ||--|| DocumentType : "配置"
+    DocumentType ||--o{ IndexInstance : "生成"
+    IndexInstance ||--o{ Document : "存储"
+    
+    EsIndexAttribute {
+        string IndexPrefix
+        IndexFormat Format
+        Type CustomGeneratorType
+    }
+    
+    DocumentType {
+        string TypeName
+        EsIndexAttribute Config
+    }
+    
+    IndexInstance {
+        string IndexName PK
+        DateTime CreatedDate
+        int NumberOfShards
+        int NumberOfReplicas
+        MappingProperties Properties
+    }
+    
+    Document {
+        string Id PK
+        string IndexName FK
+        DateTime EsDateTime
+        object Data
+    }
+    
+    IndexInstance ||--o{ MappingProperties : "包含"
+    MappingProperties ||--o{ FieldMapping : "包含"
+    
+    FieldMapping {
+        string FieldName PK
+        string FieldType
+        bool IsNested
+        bool NeedKeyword
+        string Analyzer
+    }
+```
+
 ## 安装
 
 ### 使用 .NET CLI
