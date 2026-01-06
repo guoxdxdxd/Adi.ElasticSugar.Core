@@ -1526,6 +1526,7 @@ public static class ExpressionParser
 
     /// <summary>
     /// 从 DNF 表达式生成查询
+    /// 优化：按嵌套路径对 OR 组进行分组，属于相同嵌套路径的 OR 组会合并到一个 nested 查询中，减少 nested 查询数量以提高性能
     /// </summary>
     private static Action<QueryDescriptor<T>> BuildQueryFromDnf<T>(DnfExpression<T> dnf)
     {
@@ -1540,12 +1541,244 @@ public static class ExpressionParser
             return BuildAndGroupQuery<T>(dnf.OrGroups[0]);
         }
 
-        // 多个 OR 组，使用 Bool.Should 组合
-        var shouldActions = dnf.OrGroups
-            .Select(group => BuildAndGroupQuery<T>(group))
-            .ToArray();
+        // 按嵌套路径对 OR 组进行分组
+        // 对于属于相同嵌套路径的 OR 组，合并到一个 nested 查询中
+        // 对于包含多个嵌套路径或非嵌套条件的 OR 组，独立处理
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+        
+        // 按嵌套路径分组 OR 组
+        var nestedGroups = dnf.OrGroups
+            .Select(group => new { Group = group, NestedPath = GetGroupNestedPath<T>(group) })
+            .GroupBy(x => x.NestedPath ?? "__NON_NESTED__")
+            .ToList();
 
-        return query => query.Bool(b => b.Should(shouldActions));
+        foreach (var nestedGroup in nestedGroups)
+        {
+            var nestedPath = nestedGroup.Key;
+            var groups = nestedGroup.Select(x => x.Group).ToList();
+
+            if (nestedPath == "__NON_NESTED__")
+            {
+                // 非嵌套路径的 OR 组，独立处理
+                foreach (var group in groups)
+                {
+                    queryActions.Add(BuildAndGroupQuery<T>(group));
+                }
+            }
+            else
+            {
+                // 相同嵌套路径的 OR 组，合并到一个 nested 查询中
+                if (groups.Count == 1)
+                {
+                    // 只有一个 OR 组，直接生成嵌套查询
+                    queryActions.Add(BuildAndGroupQuery<T>(groups[0]));
+                }
+                else
+                {
+                    // 多个 OR 组，合并到一个 nested 查询中
+                    queryActions.Add(query =>
+                    {
+                        query.Nested(n => n
+                            .Path(nestedPath)
+                            .Query(nq =>
+                            {
+                                // 为每个 OR 组生成查询（相对于嵌套路径）
+                                var shouldActions = groups
+                                    .Select(group => BuildAndGroupQueryForNested<T>(group, nestedPath))
+                                    .ToArray();
+                                
+                                if (shouldActions.Length == 1)
+                                {
+                                    shouldActions[0](nq);
+                                }
+                                else
+                                {
+                                    nq.Bool(b => b.Should(shouldActions));
+                                }
+                            })
+                        );
+                    });
+                }
+            }
+        }
+
+        // 组合所有查询
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Should(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 获取 OR 组的嵌套路径
+    /// 如果 OR 组内所有条件都属于相同的嵌套路径，返回该嵌套路径；否则返回 null
+    /// 如果 OR 组内包含多个不同的嵌套路径或混合嵌套和非嵌套条件，返回 null
+    /// </summary>
+    private static string? GetGroupNestedPath<T>(AndConditionGroup<T> group)
+    {
+        if (group.Conditions.Count == 0)
+        {
+            return null;
+        }
+
+        string? groupNestedPath = null;
+        bool hasNonNested = false;
+
+        foreach (var condition in group.Conditions)
+        {
+            if (string.IsNullOrEmpty(condition.NestedPath))
+            {
+                // 该条件不是嵌套条件
+                hasNonNested = true;
+            }
+            else
+            {
+                // 该条件是嵌套条件
+                if (groupNestedPath == null)
+                {
+                    // 第一个嵌套条件，记录嵌套路径
+                    groupNestedPath = condition.NestedPath;
+                }
+                else if (groupNestedPath != condition.NestedPath)
+                {
+                    // 该 OR 组内有多个不同的嵌套路径，返回 null 表示无法合并
+                    return null;
+                }
+            }
+        }
+
+        // 如果该 OR 组既有嵌套条件又有非嵌套条件，返回 null 表示无法合并
+        if (hasNonNested && groupNestedPath != null)
+        {
+            return null;
+        }
+
+        // 返回嵌套路径（如果所有条件都属于相同的嵌套路径）
+        return groupNestedPath;
+    }
+
+    /// <summary>
+    /// 检查所有 OR 组是否都属于相同的嵌套路径
+    /// 如果所有 OR 组都属于相同的嵌套路径（或都没有嵌套路径），返回该嵌套路径；否则返回 null
+    /// </summary>
+    private static string? GetCommonNestedPath<T>(List<AndConditionGroup<T>> orGroups)
+    {
+        if (orGroups.Count == 0)
+        {
+            return null;
+        }
+
+        string? commonNestedPath = null;
+        bool hasNonNestedConditions = false;
+
+        foreach (var group in orGroups)
+        {
+            // 检查该 OR 组内的所有条件
+            string? groupNestedPath = null;
+            bool groupHasNonNested = false;
+
+            foreach (var condition in group.Conditions)
+            {
+                if (string.IsNullOrEmpty(condition.NestedPath))
+                {
+                    // 该条件不是嵌套条件
+                    groupHasNonNested = true;
+                }
+                else
+                {
+                    // 该条件是嵌套条件
+                    if (groupNestedPath == null)
+                    {
+                        // 第一个嵌套条件，记录嵌套路径
+                        groupNestedPath = condition.NestedPath;
+                    }
+                    else if (groupNestedPath != condition.NestedPath)
+                    {
+                        // 该 OR 组内有多个不同的嵌套路径，无法合并
+                        return null;
+                    }
+                }
+            }
+
+            // 如果该 OR 组既有嵌套条件又有非嵌套条件，无法合并
+            if (groupHasNonNested && groupNestedPath != null)
+            {
+                return null;
+            }
+
+            // 如果该 OR 组有非嵌套条件
+            if (groupHasNonNested)
+            {
+                hasNonNestedConditions = true;
+                // 如果之前已经有嵌套路径，无法合并
+                if (commonNestedPath != null)
+                {
+                    return null;
+                }
+            }
+
+            // 如果该 OR 组有嵌套路径
+            if (groupNestedPath != null)
+            {
+                // 如果之前已经有非嵌套条件，无法合并
+                if (hasNonNestedConditions)
+                {
+                    return null;
+                }
+
+                if (commonNestedPath == null)
+                {
+                    // 第一个有嵌套路径的 OR 组，记录嵌套路径
+                    commonNestedPath = groupNestedPath;
+                }
+                else if (commonNestedPath != groupNestedPath)
+                {
+                    // 不同的嵌套路径，无法合并
+                    return null;
+                }
+            }
+        }
+
+        // 返回公共嵌套路径（如果所有 OR 组都属于相同的嵌套路径）
+        // 注意：如果所有 OR 组都是非嵌套条件（commonNestedPath == null），返回 null，表示不需要合并到 nested 查询
+        return commonNestedPath;
+    }
+
+    /// <summary>
+    /// 为嵌套查询生成 AND 条件组的查询
+    /// 与 BuildAndGroupQuery 类似，但假设所有条件都属于指定的嵌套路径
+    /// 生成的查询是相对于嵌套路径的，不需要再包装 nested 查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildAndGroupQueryForNested<T>(AndConditionGroup<T> group, string nestedPath)
+    {
+        if (group.Conditions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        // 如果只有一个条件，直接生成该条件的查询（相对于嵌套路径）
+        if (group.Conditions.Count == 1)
+        {
+            var condition = group.Conditions[0];
+            var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
+            return query => ApplyConditionToQuery(query, fullFieldPath, condition);
+        }
+
+        // 多个条件，使用 Bool.Must 组合（相对于嵌套路径）
+        var queryActions = group.Conditions.Select(condition =>
+        {
+            var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
+            return new Action<QueryDescriptor<T>>(q => ApplyConditionToQuery(q, fullFieldPath, condition));
+        }).ToArray();
+
+        return query => query.Bool(b => b.Must(queryActions));
     }
 
     /// <summary>

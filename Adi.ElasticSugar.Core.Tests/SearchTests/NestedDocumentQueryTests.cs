@@ -34,6 +34,13 @@ public class NestedDocumentQueryTests : TestBase
                     ZipCode = "100001",
                     Country = "China"
                 },
+                Address2 = new NestedAddress
+                {
+                    Street = "Street 2",
+                    City = "Beijing2",
+                    ZipCode = "100002",
+                    Country = "China2"
+                },
                 Items = new List<NestedItem>
                 {
                     new() { ProductName = "Product A", Quantity = 10, Price = 100.5m, IsAvailable = true },
@@ -51,6 +58,13 @@ public class NestedDocumentQueryTests : TestBase
                     City = "Shanghai",
                     ZipCode = "200001",
                     Country = "China"
+                },
+                Address2 = new NestedAddress
+                {
+                    Street = "Street 3",
+                    City = "Beijing3",
+                    ZipCode = "100003",
+                    Country = "China3"
                 },
                 Items = new List<NestedItem>
                 {
@@ -1288,6 +1302,323 @@ public class NestedDocumentQueryTests : TestBase
             doc.Items.Should().NotBeNull();
             doc.Items.Should().NotBeEmpty();
         }
+    }
+
+    // ========== DNF 表达式优化测试：多个 OR 组合并到同一个 nested 查询 ==========
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径时，应该合并到一个 nested 查询中
+    /// 优化场景：所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询以提高性能
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_SameNestedPath_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.ZipCode == "100001") 
+        // OR 
+        // (Address.City == "Shanghai" && Address.ZipCode == "200001")
+        // 这两个 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
+                (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001"))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
+            (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001")
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径，且每个 OR 组包含多个条件
+    /// 验证复杂场景下的合并优化
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_SameNestedPath_MultipleConditions_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.ZipCode == "100001" && Address.Country == "China")
+        // OR
+        // (Address.City == "Beijing" && Address.ZipCode == "100002" && Address.Country == "China")
+        // OR
+        // (Address.City == "Shanghai" && Address.ZipCode == "200001" && Address.Country == "China")
+        // 所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Country == "China") ||
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
+                (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001" && x.Address.Country == "China"))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Country == "China") ||
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
+            (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001" && x.Address.Country == "China")
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径，包含字符串操作（Contains, StartsWith）
+    /// 验证包含不同查询类型的 OR 组也能正确合并
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_SameNestedPath_WithStringOperations_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.Street.Contains("Street"))
+        // OR
+        // (Address.City == "Shanghai" && Address.Country.StartsWith("China"))
+        // 所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && x.Address.Street.Contains("Street")) ||
+                (x.Address.City == "Shanghai" && x.Address.Country.StartsWith("China")))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.Street.Contains("Street")) ||
+            (x.Address.City == "Shanghai" && x.Address.Country.StartsWith("China"))
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组中有些是嵌套条件，有些是非嵌套条件，不应该合并
+    /// 验证混合场景下不会错误合并
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_MixedNestedAndRegular_ShouldNotMerge()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing")
+        // OR
+        // (TextField == "Order 2")
+        // 第一个 OR 组是嵌套条件，第二个是非嵌套条件，不应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                x.Address.City == "Beijing" ||
+                x.TextField == "Order 2")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            x.Address.City == "Beijing" ||
+            x.TextField == "Order 2"
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试所有 OR 组都是非嵌套条件，不应该合并到 nested 查询
+    /// 验证非嵌套条件不会错误地合并到 nested 查询中
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_AllRegularFields_ShouldNotMergeIntoNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (TextField == "Order 1")
+        // OR
+        // (TextField == "Order 2")
+        // 所有 OR 组都是非嵌套条件，不应该合并到 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                x.TextField == "Order 1" ||
+                x.TextField == "Order 2")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
+        result.Documents.All(x => 
+            x.TextField == "Order 1" ||
+            x.TextField == "Order 2"
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试复杂的 OR 组合，所有 OR 组都属于相同的嵌套路径
+    /// 验证包含多个字段和多种查询类型的复杂场景也能正确合并
+    /// </summary>
+    [Fact]
+    public async Task Where_ComplexOrGroups_AllSameNestedPath_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.ZipCode == "100001" && Address.Street.Contains("Street"))
+        // OR
+        // (Address.City == "Beijing" && Address.ZipCode == "100002" && Address.Country == "China")
+        // OR
+        // (Address.City == "Shanghai" && Address.ZipCode.StartsWith("200") && Address.Country.StartsWith("China"))
+        // 所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Street.Contains("Street")) ||
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
+                (x.Address.City == "Shanghai" && x.Address.ZipCode.StartsWith("200") && x.Address.Country.StartsWith("China")))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Street.Contains("Street")) ||
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
+            (x.Address.City == "Shanghai" && x.Address.ZipCode.StartsWith("200") && x.Address.Country.StartsWith("China"))
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试单个 OR 组的情况，应该走原来的逻辑（不触发合并优化）
+    /// 验证单个 OR 组不会错误地触发合并逻辑
+    /// </summary>
+    [Fact]
+    public async Task Where_SingleOrGroup_ShouldUseOriginalLogic()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // Address.City == "Beijing" || Address.City == "Shanghai"
+        // 这是单个 OR 组（虽然内部有 OR，但整个表达式只有一个 OR 组），应该走原来的逻辑
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.Address.City == "Beijing" || x.Address.City == "Shanghai")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
+        result.Documents.All(x => 
+            x.Address.City == "Beijing" || 
+            x.Address.City == "Shanghai"
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径，且包含 In 查询（Terms 查询）
+    /// 验证包含 Terms 查询的 OR 组也能正确合并
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_SameNestedPath_WithInQuery_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+        var zipCodes1 = new[] { "100001", "100002" };
+        var zipCodes2 = new[] { "200001" };
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && zipCodes1.Contains(Address.ZipCode))
+        // OR
+        // (Address.City == "Shanghai" && zipCodes2.Contains(Address.ZipCode))
+        // 所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && zipCodes1.Contains(x.Address.ZipCode)) ||
+                (x.Address.City == "Shanghai" && zipCodes2.Contains(x.Address.ZipCode)))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && zipCodes1.Contains(x.Address.ZipCode)) ||
+            (x.Address.City == "Shanghai" && zipCodes2.Contains(x.Address.ZipCode))
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径，且包含 EndsWith 查询
+    /// 验证包含 EndsWith 查询的 OR 组也能正确合并
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_SameNestedPath_WithEndsWith_ShouldMergeIntoOneNestedQuery()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.ZipCode.EndsWith("001"))
+        // OR
+        // (Address.City == "Beijing" && Address.ZipCode.EndsWith("002"))
+        // OR
+        // (Address.City == "Shanghai" && Address.ZipCode.EndsWith("001"))
+        // 所有 OR 组都属于 address 嵌套路径，应该合并到一个 nested 查询中
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("001")) ||
+                (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("002")) ||
+                (x.Address.City == "Shanghai" && x.Address.ZipCode.EndsWith("001")))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("001")) ||
+            (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("002")) ||
+            (x.Address.City == "Shanghai" && x.Address.ZipCode.EndsWith("001"))
+        ).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试多个 OR 组都属于相同的嵌套路径，但其中一个 OR 组包含非嵌套条件，不应该合并
+    /// 验证即使大部分 OR 组属于相同嵌套路径，只要有一个包含非嵌套条件就不应该合并
+    /// </summary>
+    [Fact]
+    public async Task Where_MultipleOrGroups_MostlySameNestedPath_ButOneHasRegularField_ShouldNotMerge()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act - 查询：
+        // (Address.City == "Beijing" && Address.ZipCode == "100001")
+        // OR
+        // (Address.City == "Shanghai" && Address.ZipCode == "200001")
+        // OR
+        // (TextField == "Order 3")
+        // 前两个 OR 组属于 address 嵌套路径，但第三个包含非嵌套条件，不应该合并
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => 
+                (x.Address.City == "1" && x.Address2.ZipCode == "1") ||
+                (x.Address.City == "2" && x.Address.ZipCode == "2") ||
+                (x.Address.City == "3" && x.Address.ZipCode == "3") ||
+                x.TextField == "Order 3")
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Documents.All(x => 
+            (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
+            (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001") ||
+            x.TextField == "Order 3"
+        ).Should().BeTrue();
     }
 }
 
