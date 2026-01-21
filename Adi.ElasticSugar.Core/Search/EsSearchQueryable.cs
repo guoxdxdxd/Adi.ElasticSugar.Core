@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
@@ -298,6 +299,95 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
+    /// 对指定字段进行 Sum 聚合（单字段）
+    /// 通过表达式从泛型类型中解析字段路径，避免手写字符串字段名
+    /// </summary>
+    /// <param name="field">聚合字段</param>
+    /// <returns>聚合结果（可能为 null）</returns>
+    public async Task<double?> SumAsync(Expression<Func<T, object>> field)
+    {
+        if (field == null)
+        {
+            throw new ArgumentNullException(nameof(field));
+        }
+
+        var results = await SumAsync(new[] { field });
+        return results.TryGetValue(GetAggregationName(field), out var value) ? value : null;
+    }
+
+    /// <summary>
+    /// 对多个字段进行 Sum 聚合
+    /// 通过表达式进行聚合计算，适合在业务层按 LINQ 风格使用
+    /// </summary>
+    /// <param name="fields">聚合字段集合</param>
+    /// <returns>聚合结果字典（key 为字段名，value 为聚合值）</returns>
+    public async Task<IReadOnlyDictionary<string, double?>> SumAsync(params Expression<Func<T, object>>[] fields)
+    {
+        if (fields == null || fields.Length == 0)
+        {
+            throw new ArgumentException("聚合字段不能为空", nameof(fields));
+        }
+
+        // 聚合查询只依赖查询条件（Where），不需要排序/分页/命中数跟踪
+        // 这里显式构建一个“轻量”搜索描述符，避免携带无效配置
+        var descriptor = new SearchRequestDescriptor<T>();
+        descriptor = descriptor.Index(_index);
+
+        // 构建查询条件（仅应用 Where 逻辑）
+        var queryAction = BuildQuery();
+        if (queryAction != null)
+        {
+            descriptor = descriptor.Query(queryAction);
+        }
+
+        // 将 Size 设置为 0，避免返回文档，仅返回聚合结果
+        descriptor = descriptor.Size(0);
+
+        var aggregationRequests = new List<(string aggName, string fieldPath)>();
+        foreach (var field in fields)
+        {
+            if (field == null)
+            {
+                continue;
+            }
+
+            var (fieldPath, _) = ExtractFieldPathWithProperty(field);
+            if (string.IsNullOrEmpty(fieldPath))
+            {
+                throw new InvalidOperationException("无法解析聚合字段路径");
+            }
+
+            // 聚合名称统一使用字段名（camelCase 或自定义 FieldName）
+            var aggName = GetAggregationName(field);
+            aggregationRequests.Add((aggName, fieldPath));
+        }
+
+        descriptor = descriptor.Aggregations(aggs =>
+        {
+            foreach (var (aggName, fieldPath) in aggregationRequests)
+            {
+                aggs.Sum(aggName, s => s.Field(fieldPath));
+            }
+        });
+
+        var response = await _client.SearchAsync<T>(descriptor);
+        var result = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+
+        if (response?.Aggregations == null)
+        {
+            return result;
+        }
+
+        foreach (var (aggName, _) in aggregationRequests)
+        {
+            var sum = response.Aggregations.GetSum(aggName);
+            result[aggName] = sum?.Value;
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 构建搜索描述符
     /// </summary>
     /// <returns>搜索描述符</returns>
@@ -356,6 +446,27 @@ public class EsSearchQueryable<T>
         }
 
         return descriptor;
+    }
+
+    /// <summary>
+    /// 解析表达式中的字段名，用于聚合名称
+    /// </summary>
+    private string GetAggregationName(Expression<Func<T, object>> expression)
+    {
+        var (fieldPath, propertyInfo) = ExtractFieldPathWithProperty(expression);
+        if (!string.IsNullOrEmpty(propertyInfo?.Name))
+        {
+            return FieldNameHelper.GetIndexFieldName(propertyInfo);
+        }
+
+        if (!string.IsNullOrEmpty(fieldPath))
+        {
+            // 字段路径优先取最后一段作为聚合名称，避免聚合名称过长
+            var lastSegment = fieldPath.Split('.').LastOrDefault();
+            return string.IsNullOrEmpty(lastSegment) ? fieldPath : lastSegment;
+        }
+
+        throw new InvalidOperationException("无法解析聚合字段名称");
     }
 
     /// <summary>

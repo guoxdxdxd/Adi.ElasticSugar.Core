@@ -401,6 +401,17 @@ public static class ExpressionParser
         // 提取成员访问路径
         while (current is MemberExpression member)
         {
+            // 特殊处理 Nullable<T>.Value：
+            // 这是代码层面的空值解包，不是索引字段的一部分，不能出现在字段路径中。
+            // 例如 o.Field.Value 应等价于 o.Field，避免生成 "field.value" 的查询字段。
+            if (member.Member is PropertyInfo valuePropertyInfo &&
+                IsNullableValueProperty(valuePropertyInfo) &&
+                member.Expression != null)
+            {
+                current = member.Expression;
+                continue;
+            }
+
             // 如果是属性，保存 PropertyInfo 并获取索引名称
             if (member.Member is PropertyInfo propertyInfo)
             {
@@ -426,6 +437,16 @@ public static class ExpressionParser
         }
 
         if (path.Count == 0)
+        {
+            return (null, null, null);
+        }
+
+        // 只允许从参数表达式（即查询对象本身）提取字段路径。
+        // 这样可以避免把闭包变量或本地变量当作索引字段，例如：
+        // var a = new List<string> { "3", "7" };
+        // a.Contains(o.DistributeType)
+        // 此时 a 是值集合，不应被识别为字段路径。
+        if (!IsParameterExpressionOfType<T>(current))
         {
             return (null, null, null);
         }
@@ -500,6 +521,29 @@ public static class ExpressionParser
         }
 
         return type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
+    }
+
+    /// <summary>
+    /// 判断表达式是否为指定类型的参数表达式（允许显式转换）
+    /// </summary>
+    private static bool IsParameterExpressionOfType<T>(Expression? expression)
+    {
+        if (expression == null)
+        {
+            return false;
+        }
+
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return IsParameterExpressionOfType<T>(unary.Operand);
+        }
+
+        if (expression is ParameterExpression parameter)
+        {
+            return parameter.Type == typeof(T) || typeof(T).IsAssignableFrom(parameter.Type);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -632,12 +676,30 @@ public static class ExpressionParser
         {
             if (member.Member is PropertyInfo propertyInfo)
             {
+                // Nullable<T>.Value 不是索引字段，跳过并继续向上查找真实字段
+                if (IsNullableValueProperty(propertyInfo) && member.Expression != null)
+                {
+                    current = member.Expression;
+                    continue;
+                }
+
                 lastProperty = propertyInfo;
             }
             current = member.Expression;
         }
 
         return lastProperty;
+    }
+
+    /// <summary>
+    /// 判断成员是否为 Nullable&lt;T&gt;.Value
+    /// </summary>
+    private static bool IsNullableValueProperty(PropertyInfo propertyInfo)
+    {
+        return propertyInfo.Name == "Value"
+            && propertyInfo.DeclaringType != null
+            && propertyInfo.DeclaringType.IsGenericType
+            && propertyInfo.DeclaringType.GetGenericTypeDefinition() == typeof(Nullable<>);
     }
 
     /// <summary>
@@ -1298,10 +1360,26 @@ public static class ExpressionParser
     /// </summary>
     private static QueryCondition<T>? ParseAtomicCondition<T>(Expression expression)
     {
-        // 处理类型转换
-        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        // 处理一元表达式（类型转换 / 逻辑非）
+        if (expression is UnaryExpression unary)
         {
-            return ParseAtomicCondition<T>(unary.Operand);
+            if (unary.NodeType == ExpressionType.Convert)
+            {
+                return ParseAtomicCondition<T>(unary.Operand);
+            }
+
+            // 逻辑非：将条件标记为取反
+            if (unary.NodeType == ExpressionType.Not)
+            {
+                var innerCondition = ParseAtomicCondition<T>(unary.Operand);
+                if (innerCondition == null)
+                {
+                    return null;
+                }
+
+                innerCondition.IsNegated = !innerCondition.IsNegated;
+                return innerCondition;
+            }
         }
 
         // 处理比较表达式
@@ -1365,6 +1443,20 @@ public static class ExpressionParser
                 var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
                 if (!string.IsNullOrEmpty(fieldPath) && value != null)
                 {
+                    // 如果值是集合，应该走 terms 查询，避免把集合 ToString 变成类型名
+                    if (value is IEnumerable enumerable && value is not string)
+                    {
+                        var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                        return new QueryCondition<T>
+                        {
+                            FieldPath = finalFieldPath,
+                            NestedPath = nestedPath,
+                            LastProperty = lastProperty,
+                            Value = enumerable,
+                            ConditionType = ConditionType.Terms
+                        };
+                    }
+
                     return new QueryCondition<T>
                     {
                         FieldPath = fieldPath,
@@ -1633,6 +1725,12 @@ public static class ExpressionParser
 
         foreach (var condition in group.Conditions)
         {
+            // 含有逻辑非的嵌套条件，不参与嵌套路径合并，避免语义错误
+            if (condition.IsNegated && !string.IsNullOrEmpty(condition.NestedPath))
+            {
+                return null;
+            }
+
             if (string.IsNullOrEmpty(condition.NestedPath))
             {
                 // 该条件不是嵌套条件
@@ -1686,6 +1784,12 @@ public static class ExpressionParser
 
             foreach (var condition in group.Conditions)
             {
+                // 含有逻辑非的嵌套条件，不参与公共嵌套路径判断
+                if (condition.IsNegated && !string.IsNullOrEmpty(condition.NestedPath))
+                {
+                    return null;
+                }
+
                 if (string.IsNullOrEmpty(condition.NestedPath))
                 {
                     // 该条件不是嵌套条件
@@ -1768,14 +1872,14 @@ public static class ExpressionParser
         {
             var condition = group.Conditions[0];
             var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-            return query => ApplyConditionToQuery(query, fullFieldPath, condition);
+            return query => ApplyConditionToQueryWithNegation(query, fullFieldPath, condition);
         }
 
         // 多个条件，使用 Bool.Must 组合（相对于嵌套路径）
         var queryActions = group.Conditions.Select(condition =>
         {
             var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-            return new Action<QueryDescriptor<T>>(q => ApplyConditionToQuery(q, fullFieldPath, condition));
+            return new Action<QueryDescriptor<T>>(q => ApplyConditionToQueryWithNegation(q, fullFieldPath, condition));
         }).ToArray();
 
         return query => query.Bool(b => b.Must(queryActions));
@@ -1800,12 +1904,12 @@ public static class ExpressionParser
 
         // 按嵌套路径分组条件
         var nestedGroups = group.Conditions
-            .Where(c => !string.IsNullOrEmpty(c.NestedPath))
+            .Where(c => !string.IsNullOrEmpty(c.NestedPath) && !c.IsNegated)
             .GroupBy(c => c.NestedPath!)
             .ToList();
 
         var regularConditions = group.Conditions
-            .Where(c => string.IsNullOrEmpty(c.NestedPath))
+            .Where(c => string.IsNullOrEmpty(c.NestedPath) || c.IsNegated)
             .ToList();
 
         var queryActions = new List<Action<QueryDescriptor<T>>>();
@@ -1825,7 +1929,7 @@ public static class ExpressionParser
                     var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
                     query.Nested(n => n
                         .Path(nestedPath)
-                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                        .Query(nq => ApplyConditionToQueryWithNegation(nq, fullFieldPath, condition))
                     );
                 });
             }
@@ -1841,7 +1945,7 @@ public static class ExpressionParser
                             var nestedQueryActions = conditions.Select(condition =>
                             {
                                 var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-                                return new Action<QueryDescriptor<T>>(nq2 => ApplyConditionToQuery(nq2, fullFieldPath, condition));
+                                return new Action<QueryDescriptor<T>>(nq2 => ApplyConditionToQueryWithNegation(nq2, fullFieldPath, condition));
                             }).ToArray();
 
                             if (nestedQueryActions.Length == 1)
@@ -1889,17 +1993,43 @@ public static class ExpressionParser
             var fullFieldPath = $"{condition.NestedPath}.{condition.FieldPath}";
             return query =>
             {
-                query.Nested(n => n
-                    .Path(condition.NestedPath)
-                    .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
-                );
+                // 逻辑非的嵌套条件：需要在外层使用 must_not 包裹 nested 查询
+                if (condition.IsNegated)
+                {
+                    query.Bool(b => b.MustNot(mn => mn.Nested(n => n
+                        .Path(condition.NestedPath)
+                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                    )));
+                }
+                else
+                {
+                    query.Nested(n => n
+                        .Path(condition.NestedPath)
+                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                    );
+                }
             };
         }
         else
         {
             // 普通查询
-            return query => ApplyConditionToQuery(query, condition.FieldPath, condition);
+            return query => ApplyConditionToQueryWithNegation(query, condition.FieldPath, condition);
         }
+    }
+
+    /// <summary>
+    /// 应用条件到查询描述符（支持逻辑非）
+    /// 逻辑非通过 must_not 包裹原子条件，避免丢失条件或错误命中
+    /// </summary>
+    private static void ApplyConditionToQueryWithNegation<T>(QueryDescriptor<T> query, string fieldPath, QueryCondition<T> condition)
+    {
+        if (condition.IsNegated)
+        {
+            query.Bool(b => b.MustNot(mn => ApplyConditionToQuery(mn, fieldPath, condition)));
+            return;
+        }
+
+        ApplyConditionToQuery(query, fieldPath, condition);
     }
 
     /// <summary>
@@ -2066,6 +2196,11 @@ internal class QueryCondition<T>
     /// 条件类型
     /// </summary>
     public ConditionType ConditionType { get; set; }
+
+    /// <summary>
+    /// 是否为逻辑非条件（如 !x.Field.Contains(...)）
+    /// </summary>
+    public bool IsNegated { get; set; }
 
     /// <summary>
     /// Wildcard 模式（用于 Wildcard 查询）
