@@ -27,16 +27,16 @@ public static class ExpressionParser
             return null;
         }
 
-        // 步骤1：将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(expression.Body);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 步骤1：将表达式转换为布尔树（不做 DNF 展开，避免 OR 组爆炸）
+        var boolNode = ConvertToBoolNode<T>(expression.Body);
+        if (boolNode == null)
         {
             return null;
         }
-        
-        // 步骤2：生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+
+        // 步骤2：根据布尔树生成查询
+        // 核心目标：在保持语义正确的前提下，尽量把相同 nestedPath 的条件合并为单个 nested 查询
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
     /// <summary>
@@ -105,16 +105,15 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseAndExpression<T>(BinaryExpression binary)
     {
-        // 将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(binary);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 将表达式转换为布尔树（不做 DNF 展开）
+        var boolNode = ConvertToBoolNode<T>(binary);
+        if (boolNode == null)
         {
             return null;
         }
-        
+
         // 生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
     /// <summary>
@@ -123,16 +122,15 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseOrExpression<T>(BinaryExpression binary)
     {
-        // 将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(binary);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 将表达式转换为布尔树（不做 DNF 展开）
+        var boolNode = ConvertToBoolNode<T>(binary);
+        if (boolNode == null)
         {
             return null;
         }
-        
+
         // 生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
 
@@ -1230,6 +1228,425 @@ public static class ExpressionParser
                type == typeof(decimal);
     }
 
+    /// <summary>
+    /// 将表达式转换为布尔树（不做 DNF 展开）
+    /// 目标：保留原始逻辑结构，避免 OR 组交叉组合带来的数量爆炸
+    /// </summary>
+    private static BoolNode<T>? ConvertToBoolNode<T>(Expression expression)
+    {
+        // 处理类型转换，保证解析一致性
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return ConvertToBoolNode<T>(unary.Operand);
+        }
+
+        // 处理二元表达式
+        if (expression is BinaryExpression binary)
+        {
+            return binary.NodeType switch
+            {
+                // OR 运算符：构建 Or 节点并扁平化相邻的 Or 结构
+                ExpressionType.OrElse => MergeOrNodes<T>(
+                    ConvertToBoolNode<T>(binary.Left),
+                    ConvertToBoolNode<T>(binary.Right)
+                ),
+
+                // AND 运算符：构建 And 节点并扁平化相邻的 And 结构
+                ExpressionType.AndAlso => MergeAndNodes<T>(
+                    ConvertToBoolNode<T>(binary.Left),
+                    ConvertToBoolNode<T>(binary.Right)
+                ),
+
+                // 其他二元运算符（比较运算符）作为原子条件
+                _ => CreateAtomicBoolNode<T>(expression)
+            };
+        }
+
+        // 处理其他表达式类型（方法调用、成员访问等）作为原子条件
+        return CreateAtomicBoolNode<T>(expression);
+    }
+
+    /// <summary>
+    /// 创建原子布尔节点
+    /// </summary>
+    private static BoolNode<T>? CreateAtomicBoolNode<T>(Expression expression)
+    {
+        var condition = ParseAtomicCondition<T>(expression);
+        if (condition == null)
+        {
+            return null;
+        }
+
+        return new AtomicBoolNode<T>(condition);
+    }
+
+    /// <summary>
+    /// 合并 AND 节点并扁平化结构，避免多层嵌套
+    /// </summary>
+    private static BoolNode<T>? MergeAndNodes<T>(BoolNode<T>? left, BoolNode<T>? right)
+    {
+        if (left == null)
+        {
+            return right;
+        }
+
+        if (right == null)
+        {
+            return left;
+        }
+
+        var merged = new AndBoolNode<T>();
+        AppendNode(merged.Children, left, isAnd: true);
+        AppendNode(merged.Children, right, isAnd: true);
+        return merged;
+    }
+
+    /// <summary>
+    /// 合并 OR 节点并扁平化结构，避免多层嵌套
+    /// </summary>
+    private static BoolNode<T>? MergeOrNodes<T>(BoolNode<T>? left, BoolNode<T>? right)
+    {
+        if (left == null)
+        {
+            return right;
+        }
+
+        if (right == null)
+        {
+            return left;
+        }
+
+        var merged = new OrBoolNode<T>();
+        AppendNode(merged.Children, left, isAnd: false);
+        AppendNode(merged.Children, right, isAnd: false);
+        return merged;
+    }
+
+    /// <summary>
+    /// 将节点追加到目标列表中，同时进行同类型扁平化
+    /// </summary>
+    private static void AppendNode<T>(List<BoolNode<T>> target, BoolNode<T> node, bool isAnd)
+    {
+        if (isAnd && node is AndBoolNode<T> andNode)
+        {
+            target.AddRange(andNode.Children);
+            return;
+        }
+
+        if (!isAnd && node is OrBoolNode<T> orNode)
+        {
+            target.AddRange(orNode.Children);
+            return;
+        }
+
+        target.Add(node);
+    }
+
+    /// <summary>
+    /// 从布尔树生成查询
+    /// 核心思想：优先合并相同 nestedPath 的条件，避免多个 nested 查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromBoolNode<T>(BoolNode<T> node)
+    {
+        return node switch
+        {
+            AtomicBoolNode<T> atomic => BuildConditionQuery<T>(atomic.Condition),
+            AndBoolNode<T> andNode => BuildQueryFromAndNode<T>(andNode),
+            OrBoolNode<T> orNode => BuildQueryFromOrNode<T>(orNode),
+            _ => _ => { }
+        };
+    }
+
+    /// <summary>
+    /// 构建 AND 逻辑的查询
+    /// 规则：
+    /// - 同一 nestedPath 的子节点合并为一个 nested 查询（内部 must）
+    /// - 其他子节点保持原结构，使用 must 组合
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromAndNode<T>(AndBoolNode<T> node)
+    {
+        if (node.Children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (node.Children.Count == 1)
+        {
+            return BuildQueryFromBoolNode<T>(node.Children[0]);
+        }
+
+        var nestedGroups = new Dictionary<string, List<BoolNode<T>>>();
+        var regularNodes = new List<BoolNode<T>>();
+
+        foreach (var child in node.Children)
+        {
+            if (TryGetUniformNestedPath(child, out var nestedPath))
+            {
+                if (!nestedGroups.TryGetValue(nestedPath, out var list))
+                {
+                    list = new List<BoolNode<T>>();
+                    nestedGroups[nestedPath] = list;
+                }
+
+                list.Add(child);
+                continue;
+            }
+
+            regularNodes.Add(child);
+        }
+
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+
+        // 处理可合并的 nested 组
+        foreach (var (nestedPath, groupNodes) in nestedGroups)
+        {
+            var nestedActions = groupNodes
+                .Select(n => BuildQueryRelativeToNested<T>(n, nestedPath))
+                .ToArray();
+
+            queryActions.Add(query =>
+            {
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq =>
+                    {
+                        if (nestedActions.Length == 1)
+                        {
+                            nestedActions[0](nq);
+                        }
+                        else
+                        {
+                            nq.Bool(b => b.Must(nestedActions));
+                        }
+                    })
+                );
+            });
+        }
+
+        // 处理无法合并的节点
+        foreach (var child in regularNodes)
+        {
+            queryActions.Add(BuildQueryFromBoolNode<T>(child));
+        }
+
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Must(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 构建 OR 逻辑的查询
+    /// 规则：
+    /// - 同一 nestedPath 的子节点合并为一个 nested 查询（内部 should）
+    /// - 其他子节点保持原结构，使用 should 组合
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromOrNode<T>(OrBoolNode<T> node)
+    {
+        if (node.Children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (node.Children.Count == 1)
+        {
+            return BuildQueryFromBoolNode<T>(node.Children[0]);
+        }
+
+        var nestedGroups = new Dictionary<string, List<BoolNode<T>>>();
+        var regularNodes = new List<BoolNode<T>>();
+
+        foreach (var child in node.Children)
+        {
+            if (TryGetUniformNestedPath(child, out var nestedPath))
+            {
+                if (!nestedGroups.TryGetValue(nestedPath, out var list))
+                {
+                    list = new List<BoolNode<T>>();
+                    nestedGroups[nestedPath] = list;
+                }
+
+                list.Add(child);
+                continue;
+            }
+
+            regularNodes.Add(child);
+        }
+
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+
+        // 处理可合并的 nested 组
+        foreach (var (nestedPath, groupNodes) in nestedGroups)
+        {
+            var nestedActions = groupNodes
+                .Select(n => BuildQueryRelativeToNested<T>(n, nestedPath))
+                .ToArray();
+
+            queryActions.Add(query =>
+            {
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq =>
+                    {
+                        if (nestedActions.Length == 1)
+                        {
+                            nestedActions[0](nq);
+                        }
+                        else
+                        {
+                            nq.Bool(b => b.Should(nestedActions));
+                        }
+                    })
+                );
+            });
+        }
+
+        // 处理无法合并的节点
+        foreach (var child in regularNodes)
+        {
+            queryActions.Add(BuildQueryFromBoolNode<T>(child));
+        }
+
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Should(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 尝试判断节点是否完全属于同一 nestedPath（且不包含逻辑非）
+    /// 用于判断是否可以合并为一个 nested 查询
+    /// </summary>
+    private static bool TryGetUniformNestedPath<T>(BoolNode<T> node, out string nestedPath)
+    {
+        nestedPath = string.Empty;
+
+        switch (node)
+        {
+            case AtomicBoolNode<T> atomic:
+                if (atomic.Condition.IsNegated || string.IsNullOrEmpty(atomic.Condition.NestedPath))
+                {
+                    return false;
+                }
+
+                nestedPath = atomic.Condition.NestedPath!;
+                return true;
+
+            case AndBoolNode<T> andNode:
+                return TryGetUniformNestedPathFromChildren(andNode.Children, out nestedPath);
+
+            case OrBoolNode<T> orNode:
+                return TryGetUniformNestedPathFromChildren(orNode.Children, out nestedPath);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// 从子节点集合中判断是否存在统一的 nestedPath
+    /// </summary>
+    private static bool TryGetUniformNestedPathFromChildren<T>(IReadOnlyList<BoolNode<T>> children, out string nestedPath)
+    {
+        nestedPath = string.Empty;
+        if (children.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var child in children)
+        {
+            if (!TryGetUniformNestedPath(child, out var childPath))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(nestedPath))
+            {
+                nestedPath = childPath;
+                continue;
+            }
+
+            if (nestedPath != childPath)
+            {
+                return false;
+            }
+        }
+
+        return !string.IsNullOrEmpty(nestedPath);
+    }
+
+    /// <summary>
+    /// 在已知 nestedPath 的前提下生成相对查询（不再重复包 nested）
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryRelativeToNested<T>(BoolNode<T> node, string nestedPath)
+    {
+        switch (node)
+        {
+            case AtomicBoolNode<T> atomic:
+                var fullFieldPath = $"{nestedPath}.{atomic.Condition.FieldPath}";
+                return q => ApplyConditionToQueryWithNegation(q, fullFieldPath, atomic.Condition);
+
+            case AndBoolNode<T> andNode:
+                return BuildRelativeBoolQuery(andNode.Children, nestedPath, useShould: false);
+
+            case OrBoolNode<T> orNode:
+                return BuildRelativeBoolQuery(orNode.Children, nestedPath, useShould: true);
+
+            default:
+                return _ => { };
+        }
+    }
+
+    /// <summary>
+    /// 构建相对于 nestedPath 的 Bool 查询（不包 nested）
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildRelativeBoolQuery<T>(
+        IReadOnlyList<BoolNode<T>> children,
+        string nestedPath,
+        bool useShould)
+    {
+        if (children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        var actions = children
+            .Select(child => BuildQueryRelativeToNested<T>(child, nestedPath))
+            .ToArray();
+
+        if (actions.Length == 1)
+        {
+            return actions[0];
+        }
+
+        return query =>
+        {
+            if (useShould)
+            {
+                query.Bool(b => b.Should(actions));
+            }
+            else
+            {
+                query.Bool(b => b.Must(actions));
+            }
+        };
+    }
+
 
     /// <summary>
     /// 将表达式转换为 DNF（析取范式）格式
@@ -2147,6 +2564,43 @@ internal class DnfExpression<T>
     /// OR 组列表，每个组是一个 AND 条件组
     /// </summary>
     public List<AndConditionGroup<T>> OrGroups { get; } = new();
+}
+
+/// <summary>
+/// 布尔树节点基类
+/// 用于在不做 DNF 展开的情况下保留表达式结构
+/// </summary>
+internal abstract class BoolNode<T>
+{
+}
+
+/// <summary>
+/// 原子节点（单个查询条件）
+/// </summary>
+internal sealed class AtomicBoolNode<T> : BoolNode<T>
+{
+    public AtomicBoolNode(QueryCondition<T> condition)
+    {
+        Condition = condition;
+    }
+
+    public QueryCondition<T> Condition { get; }
+}
+
+/// <summary>
+/// AND 节点
+/// </summary>
+internal sealed class AndBoolNode<T> : BoolNode<T>
+{
+    public List<BoolNode<T>> Children { get; } = new();
+}
+
+/// <summary>
+/// OR 节点
+/// </summary>
+internal sealed class OrBoolNode<T> : BoolNode<T>
+{
+    public List<BoolNode<T>> Children { get; } = new();
 }
 
 /// <summary>
