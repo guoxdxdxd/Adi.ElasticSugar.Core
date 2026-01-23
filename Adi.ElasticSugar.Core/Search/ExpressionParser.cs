@@ -27,16 +27,16 @@ public static class ExpressionParser
             return null;
         }
 
-        // 步骤1：将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(expression.Body);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 步骤1：将表达式转换为布尔树（不做 DNF 展开，避免 OR 组爆炸）
+        var boolNode = ConvertToBoolNode<T>(expression.Body);
+        if (boolNode == null)
         {
             return null;
         }
-        
-        // 步骤2：生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+
+        // 步骤2：根据布尔树生成查询
+        // 核心目标：在保持语义正确的前提下，尽量把相同 nestedPath 的条件合并为单个 nested 查询
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
     /// <summary>
@@ -105,16 +105,15 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseAndExpression<T>(BinaryExpression binary)
     {
-        // 将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(binary);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 将表达式转换为布尔树（不做 DNF 展开）
+        var boolNode = ConvertToBoolNode<T>(binary);
+        if (boolNode == null)
         {
             return null;
         }
-        
+
         // 生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
     /// <summary>
@@ -123,16 +122,15 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseOrExpression<T>(BinaryExpression binary)
     {
-        // 将表达式转换为 DNF 格式
-        var dnfExpression = ConvertToDnf<T>(binary);
-        
-        if (dnfExpression == null || dnfExpression.OrGroups.Count == 0)
+        // 将表达式转换为布尔树（不做 DNF 展开）
+        var boolNode = ConvertToBoolNode<T>(binary);
+        if (boolNode == null)
         {
             return null;
         }
-        
+
         // 生成查询
-        return BuildQueryFromDnf<T>(dnfExpression);
+        return BuildQueryFromBoolNode<T>(boolNode);
     }
 
 
@@ -207,18 +205,21 @@ public static class ExpressionParser
             var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
             if (!string.IsNullOrEmpty(fieldPath) && value != null)
             {
-                // 根据字段类型选择合适的查询方式
-                // text 类型字段使用 match 查询（支持分词），keyword 类型字段使用 wildcard 查询
-                if (IsKeywordField(lastProperty))
+                // 字符串 Contains 的语义是“子串匹配”，优先走 keyword 子字段以避免分词导致的误命中
+                // 规则说明：
+                // - 如果模型/映射允许 .keyword（GetFieldPathForExactMatch 会返回带 .keyword 的路径），使用 wildcard 进行子串匹配
+                // - 如果没有 .keyword 子字段（NeedKeyword=false 或字段本身非 text），回退到 match（保留全文检索能力）
+                var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+                
+                if (useKeywordSubField || IsKeywordField(lastProperty))
                 {
-                    // keyword 类型字段使用 wildcard 查询
-                    return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}*");
+                    // keyword 类型字段使用 wildcard 查询，匹配精确子串
+                    return BuildWildcardQuery<T>(exactMatchFieldPath, nestedPath, $"*{value}*");
                 }
-                else
-                {
-                    // text 类型字段使用 match 查询（支持全文搜索和分词）
-                    return BuildMatchQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
-                }
+
+                // text 类型字段使用 match 查询（支持全文搜索和分词）
+                return BuildMatchQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
             }
         }
         else if (methodCall.Arguments.Count == 2)
@@ -251,17 +252,18 @@ public static class ExpressionParser
         var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
         if (!string.IsNullOrEmpty(fieldPath) && value != null)
         {
-            // 根据字段类型选择合适的查询方式
-            if (IsKeywordField(lastProperty))
+            // StartsWith 优先走 keyword 子字段，避免分词导致误匹配
+            var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+            var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+            
+            if (useKeywordSubField || IsKeywordField(lastProperty))
             {
                 // keyword 类型字段使用 wildcard 查询
-                return BuildWildcardQuery<T>(fieldPath, nestedPath, $"{value}*");
+                return BuildWildcardQuery<T>(exactMatchFieldPath, nestedPath, $"{value}*");
             }
-            else
-            {
-                // text 类型字段使用 match_phrase_prefix 查询（匹配以指定值开头的短语）
-                return BuildMatchPhrasePrefixQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
-            }
+
+            // text 类型字段使用 match_phrase_prefix 查询（匹配以指定值开头的短语）
+            return BuildMatchPhrasePrefixQuery<T>(fieldPath, nestedPath, value.ToString() ?? string.Empty);
         }
 
         return null;
@@ -280,20 +282,18 @@ public static class ExpressionParser
         var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
         if (!string.IsNullOrEmpty(fieldPath) && value != null)
         {
-            // 根据字段类型选择合适的查询方式
-            if (IsKeywordField(lastProperty))
+            // EndsWith 优先走 keyword 子字段，避免分词导致误匹配
+            var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+            var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+            
+            // keyword 类型字段或具备 .keyword 子字段时使用 wildcard 查询
+            if (useKeywordSubField || IsKeywordField(lastProperty))
             {
-                // keyword 类型字段使用 wildcard 查询
-                return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}");
+                return BuildWildcardQuery<T>(exactMatchFieldPath, nestedPath, $"*{value}");
             }
-            else
-            {
-                // text 类型字段的 EndsWith 查询比较复杂，可以使用 wildcard 查询在 .keyword 子字段上
-                // 或者使用 match 查询配合正则表达式，但最简单的方式是使用 .keyword 子字段的 wildcard 查询
-                // 对于 text 类型字段，EndsWith 应该使用 .keyword 子字段进行 wildcard 查询
-                var keywordFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
-                return BuildWildcardQuery<T>(keywordFieldPath, nestedPath, $"*{value}");
-            }
+
+            // 没有 keyword 子字段时只能退回到原字段的 wildcard（可能存在分词影响）
+            return BuildWildcardQuery<T>(fieldPath, nestedPath, $"*{value}");
         }
 
         return null;
@@ -304,8 +304,761 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseAny<T>(MethodCallExpression methodCall)
     {
-        // 暂时不支持，可以后续扩展
+        // Any 支持两类场景：
+        // 1) 值类型/字符串数组：items.Any(v => v == value)
+        // 2) 对象数组：items.Any(x => x.Field == value)
+        // 注意：复杂组合条件（如 x => x.A == 1 && x.B == 2）暂不在 Any 中展开，
+        // 需要时可扩展为“嵌套布尔树 + 相对路径”解析。
+
+        if (!TryExtractAnySource(methodCall, out var collectionExpression, out var predicate))
+        {
+            return null;
+        }
+
+        // Any 必须基于索引字段（即集合字段）
+        var (collectionFieldPath, collectionNestedPath, collectionProperty) = ExtractFieldFromExpression<T>(collectionExpression);
+        if (string.IsNullOrEmpty(collectionFieldPath) || predicate == null)
+        {
+            return null;
+        }
+
+        var condition = ParseAnyPredicate<T>(predicate, collectionFieldPath, collectionNestedPath, collectionProperty);
+        if (condition == null)
+        {
+            return null;
+        }
+
+        return BuildConditionQuery<T>(condition);
+    }
+
+    /// <summary>
+    /// 解析 Any 的谓词表达式为 QueryCondition
+    /// </summary>
+    private static QueryCondition<T>? ParseAnyPredicate<T>(
+        LambdaExpression predicate,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty)
+    {
+        if (predicate.Parameters.Count != 1)
+        {
+            return null;
+        }
+
+        var parameter = predicate.Parameters[0];
+        var body = predicate.Body;
+
+        // 统一处理类型转换
+        if (body is UnaryExpression convert && convert.NodeType == ExpressionType.Convert)
+        {
+            body = convert.Operand;
+        }
+
+        // 处理逻辑非（!）
+        var isNegated = false;
+        if (body is UnaryExpression notUnary && notUnary.NodeType == ExpressionType.Not)
+        {
+            isNegated = true;
+            body = notUnary.Operand;
+        }
+
+        // 0) 复合逻辑（&& / ||）
+        if (body is BinaryExpression logicBinary &&
+            (logicBinary.NodeType == ExpressionType.AndAlso || logicBinary.NodeType == ExpressionType.OrElse))
+        {
+            var boolNode = ConvertToBoolNodeForAny<T>(body, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+            if (boolNode == null)
+            {
+                return null;
+            }
+
+            var collectionIsNested = IsNestedCollectionProperty(collectionProperty);
+            Action<QueryDescriptor<T>> queryAction;
+
+            if (collectionIsNested)
+            {
+                var nestedPath = string.IsNullOrEmpty(collectionNestedPath)
+                    ? collectionFieldPath
+                    : $"{collectionNestedPath}.{collectionFieldPath}";
+
+                var relativeAction = BuildQueryRelativeToNested<T>(boolNode, nestedPath);
+                queryAction = query => query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq => relativeAction(nq))
+                );
+            }
+            else
+            {
+                queryAction = BuildQueryFromBoolNode<T>(boolNode);
+            }
+
+            return new QueryCondition<T>
+            {
+                ConditionType = ConditionType.CustomQuery,
+                CustomQueryAction = queryAction,
+                IsNegated = isNegated
+            };
+        }
+
+        // 1) 比较表达式（==, !=, >, <, >=, <=）
+        if (body is BinaryExpression binary && IsComparisonOperator(binary.NodeType))
+        {
+            var comparisonType = GetComparisonType(binary.NodeType);
+            if (comparisonType == null)
+            {
+                return null;
+            }
+
+            if (!TryExtractAnyFieldAndValue(binary.Left, binary.Right, parameter, out var innerFieldPath, out var innerProperty, out var value, out var isElementSelf))
+            {
+                return null;
+            }
+
+            var (finalFieldPath, finalNestedPath, lastProperty) = BuildAnyFieldPath(
+                collectionFieldPath, collectionNestedPath, collectionProperty,
+                innerFieldPath, innerProperty, isElementSelf);
+
+            if (string.IsNullOrEmpty(finalFieldPath) || value == null)
+            {
+                return null;
+            }
+
+            // 等值/不等值走精确匹配，范围走范围字段规则
+            var resolvedFieldPath = comparisonType == ComparisonType.Equals || comparisonType == ComparisonType.NotEquals
+                ? GetFieldPathForExactMatch(finalFieldPath, lastProperty)
+                : GetFieldPathForRangeQuery(finalFieldPath, lastProperty, value);
+
+            return new QueryCondition<T>
+            {
+                FieldPath = resolvedFieldPath,
+                NestedPath = finalNestedPath,
+                LastProperty = lastProperty,
+                ComparisonType = comparisonType.Value,
+                Value = value,
+                ConditionType = ConditionType.Comparison,
+                IsNegated = isNegated
+            };
+        }
+
+        // 2) 元素本身是布尔类型（例如 flags.Any(x => x)）
+        if (body is ParameterExpression parameterExpression && parameterExpression == parameter)
+        {
+            var elementType = GetCollectionElementType(collectionProperty?.PropertyType);
+            if (!IsBooleanType(elementType))
+            {
+                return null;
+            }
+
+            var (finalFieldPath, finalNestedPath, lastProperty) = BuildAnyFieldPath(
+                collectionFieldPath, collectionNestedPath, collectionProperty,
+                innerFieldPath: null, innerProperty: null, isElementSelf: true);
+
+            if (string.IsNullOrEmpty(finalFieldPath))
+            {
+                return null;
+            }
+
+            return new QueryCondition<T>
+            {
+                FieldPath = finalFieldPath,
+                NestedPath = finalNestedPath,
+                LastProperty = lastProperty,
+                ComparisonType = ComparisonType.Equals,
+                Value = true,
+                ConditionType = ConditionType.Comparison,
+                IsNegated = isNegated
+            };
+        }
+
+        // 3) 布尔成员访问（例如 items.Any(x => x.IsEnabled)）
+        if (body is MemberExpression member)
+        {
+            if (!TryGetMemberBooleanType(member, out var memberType) || !IsBooleanType(memberType))
+            {
+                return null;
+            }
+
+            if (!TryExtractAnyFieldFromExpression(member, parameter, out var innerFieldPath, out var innerProperty, out var isElementSelf))
+            {
+                return null;
+            }
+
+            var (finalFieldPath, finalNestedPath, lastProperty) = BuildAnyFieldPath(
+                collectionFieldPath, collectionNestedPath, collectionProperty,
+                innerFieldPath, innerProperty, isElementSelf);
+
+            if (string.IsNullOrEmpty(finalFieldPath))
+            {
+                return null;
+            }
+
+            return new QueryCondition<T>
+            {
+                FieldPath = finalFieldPath,
+                NestedPath = finalNestedPath,
+                LastProperty = lastProperty,
+                ComparisonType = ComparisonType.Equals,
+                Value = true,
+                ConditionType = ConditionType.Comparison,
+                IsNegated = isNegated
+            };
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// 将 Any 的谓词表达式转换为布尔树
+    /// </summary>
+    private static BoolNode<T>? ConvertToBoolNodeForAny<T>(
+        Expression expression,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty)
+    {
+        // 处理类型转换
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return ConvertToBoolNodeForAny<T>(unary.Operand, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+        }
+
+        if (expression is BinaryExpression binary)
+        {
+            return binary.NodeType switch
+            {
+                ExpressionType.OrElse => MergeOrNodes<T>(
+                    ConvertToBoolNodeForAny<T>(binary.Left, parameter, collectionFieldPath, collectionNestedPath, collectionProperty),
+                    ConvertToBoolNodeForAny<T>(binary.Right, parameter, collectionFieldPath, collectionNestedPath, collectionProperty)
+                ),
+                ExpressionType.AndAlso => MergeAndNodes<T>(
+                    ConvertToBoolNodeForAny<T>(binary.Left, parameter, collectionFieldPath, collectionNestedPath, collectionProperty),
+                    ConvertToBoolNodeForAny<T>(binary.Right, parameter, collectionFieldPath, collectionNestedPath, collectionProperty)
+                ),
+                _ => CreateAtomicBoolNodeForAny<T>(expression, parameter, collectionFieldPath, collectionNestedPath, collectionProperty)
+            };
+        }
+
+        return CreateAtomicBoolNodeForAny<T>(expression, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+    }
+
+    /// <summary>
+    /// 创建 Any 的原子布尔节点
+    /// </summary>
+    private static BoolNode<T>? CreateAtomicBoolNodeForAny<T>(
+        Expression expression,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty)
+    {
+        var condition = ParseAnyAtomicCondition<T>(expression, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+        if (condition == null)
+        {
+            return null;
+        }
+
+        return new AtomicBoolNode<T>(condition);
+    }
+
+    /// <summary>
+    /// 解析 Any 的原子条件（比较表达式、布尔成员访问等）
+    /// </summary>
+    private static QueryCondition<T>? ParseAnyAtomicCondition<T>(
+        Expression expression,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty)
+    {
+        // 处理一元表达式（类型转换 / 逻辑非）
+        if (expression is UnaryExpression unary)
+        {
+            if (unary.NodeType == ExpressionType.Convert)
+            {
+                return ParseAnyAtomicCondition<T>(unary.Operand, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+            }
+
+            if (unary.NodeType == ExpressionType.Not)
+            {
+                var innerCondition = ParseAnyAtomicCondition<T>(unary.Operand, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+                if (innerCondition == null)
+                {
+                    return null;
+                }
+
+                innerCondition.IsNegated = !innerCondition.IsNegated;
+                return innerCondition;
+            }
+        }
+
+        var collectionIsNested = IsNestedCollectionProperty(collectionProperty);
+
+        // 比较表达式
+        if (expression is BinaryExpression binary && IsComparisonOperator(binary.NodeType))
+        {
+            var comparisonType = GetComparisonType(binary.NodeType);
+            if (comparisonType == null)
+            {
+                return null;
+            }
+
+            if (!TryExtractAnyFieldAndValue(binary.Left, binary.Right, parameter, out var innerFieldPath, out var innerProperty, out var value, out var isElementSelf))
+            {
+                return null;
+            }
+
+            if (collectionIsNested && isElementSelf)
+            {
+                // nested 对象数组无法直接对元素本身做比较
+                return null;
+            }
+
+            var lastProperty = isElementSelf ? collectionProperty : innerProperty;
+            string? fieldPath;
+            string? nestedPath;
+
+            if (collectionIsNested)
+            {
+                if (string.IsNullOrEmpty(innerFieldPath))
+                {
+                    return null;
+                }
+
+                fieldPath = innerFieldPath;
+                nestedPath = null;
+            }
+            else
+            {
+                if (isElementSelf)
+                {
+                    fieldPath = collectionFieldPath;
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(innerFieldPath))
+                    {
+                        return null;
+                    }
+
+                    fieldPath = $"{collectionFieldPath}.{innerFieldPath}";
+                }
+
+                nestedPath = collectionNestedPath;
+            }
+
+            if (string.IsNullOrEmpty(fieldPath) || value == null)
+            {
+                return null;
+            }
+
+            var resolvedFieldPath = comparisonType == ComparisonType.Equals || comparisonType == ComparisonType.NotEquals
+                ? GetFieldPathForExactMatch(fieldPath, lastProperty)
+                : GetFieldPathForRangeQuery(fieldPath, lastProperty, value);
+
+            return new QueryCondition<T>
+            {
+                FieldPath = resolvedFieldPath,
+                NestedPath = nestedPath,
+                LastProperty = lastProperty,
+                ComparisonType = comparisonType.Value,
+                Value = value,
+                ConditionType = ConditionType.Comparison
+            };
+        }
+
+        // 元素本身是布尔类型（例如 flags.Any(x => x)）
+        if (expression is ParameterExpression parameterExpression && parameterExpression == parameter)
+        {
+            var elementType = GetCollectionElementType(collectionProperty?.PropertyType);
+            if (!IsBooleanType(elementType))
+            {
+                return null;
+            }
+
+            if (collectionIsNested)
+            {
+                // nested 对象数组不支持直接对元素本身做布尔判断
+                return null;
+            }
+
+            return new QueryCondition<T>
+            {
+                FieldPath = collectionFieldPath,
+                NestedPath = collectionNestedPath,
+                LastProperty = collectionProperty,
+                ComparisonType = ComparisonType.Equals,
+                Value = true,
+                ConditionType = ConditionType.Comparison
+            };
+        }
+
+        // 布尔成员访问（例如 items.Any(x => x.IsEnabled)）
+        if (expression is MemberExpression member)
+        {
+            if (!TryGetMemberBooleanType(member, out var memberType) || !IsBooleanType(memberType))
+            {
+                return null;
+            }
+
+            if (!TryExtractAnyFieldFromExpression(member, parameter, out var innerFieldPath, out var innerProperty, out var isElementSelf))
+            {
+                return null;
+            }
+
+            if (collectionIsNested && isElementSelf)
+            {
+                return null;
+            }
+
+            string? fieldPath;
+            string? nestedPath;
+            var lastProperty = isElementSelf ? collectionProperty : innerProperty;
+
+            if (collectionIsNested)
+            {
+                if (string.IsNullOrEmpty(innerFieldPath))
+                {
+                    return null;
+                }
+
+                fieldPath = innerFieldPath;
+                nestedPath = null;
+            }
+            else
+            {
+                if (isElementSelf)
+                {
+                    fieldPath = collectionFieldPath;
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(innerFieldPath))
+                    {
+                        return null;
+                    }
+
+                    fieldPath = $"{collectionFieldPath}.{innerFieldPath}";
+                }
+
+                nestedPath = collectionNestedPath;
+            }
+
+            return new QueryCondition<T>
+            {
+                FieldPath = fieldPath,
+                NestedPath = nestedPath,
+                LastProperty = lastProperty,
+                ComparisonType = ComparisonType.Equals,
+                Value = true,
+                ConditionType = ConditionType.Comparison
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 从 Any 的谓词中提取字段和值
+    /// </summary>
+    private static bool TryExtractAnyFieldAndValue(
+        Expression left,
+        Expression right,
+        ParameterExpression parameter,
+        out string? innerFieldPath,
+        out PropertyInfo? innerProperty,
+        out object? value,
+        out bool isElementSelf)
+    {
+        if (TryExtractAnyFieldFromExpression(left, parameter, out innerFieldPath, out innerProperty, out isElementSelf))
+        {
+            value = EvaluateExpression(right);
+            return true;
+        }
+
+        if (TryExtractAnyFieldFromExpression(right, parameter, out innerFieldPath, out innerProperty, out isElementSelf))
+        {
+            value = EvaluateExpression(left);
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    /// <summary>
+    /// 从 Any 的谓词表达式中提取相对于元素参数的字段路径
+    /// </summary>
+    private static bool TryExtractAnyFieldFromExpression(
+        Expression expression,
+        ParameterExpression parameter,
+        out string? fieldPath,
+        out PropertyInfo? lastProperty,
+        out bool isElementSelf)
+    {
+        fieldPath = null;
+        lastProperty = null;
+        isElementSelf = false;
+
+        // 处理类型转换
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            expression = unary.Operand;
+        }
+
+        // 直接访问元素本身（值类型数组）
+        if (expression is ParameterExpression parameterExpression && parameterExpression == parameter)
+        {
+            isElementSelf = true;
+            return true;
+        }
+
+        var path = new List<string>();
+        var properties = new List<PropertyInfo>();
+        var current = expression;
+
+        while (current is MemberExpression member)
+        {
+            if (member.Member is PropertyInfo propertyInfo)
+            {
+                // 跳过 Nullable<T>.Value
+                if (IsNullableValueProperty(propertyInfo) && member.Expression != null)
+                {
+                    current = member.Expression;
+                    continue;
+                }
+
+                properties.Insert(0, propertyInfo);
+                var fieldName = FieldNameHelper.GetIndexFieldName(propertyInfo);
+                path.Insert(0, fieldName);
+            }
+            else
+            {
+                path.Insert(0, FieldNameHelper.GetIndexFieldName(member.Member.Name));
+            }
+
+            current = member.Expression;
+        }
+
+        if (path.Count == 0)
+        {
+            return false;
+        }
+
+        if (current != parameter)
+        {
+            return false;
+        }
+
+        fieldPath = string.Join(".", path);
+        lastProperty = properties.Count > 0 ? properties[^1] : null;
+        return true;
+    }
+
+    /// <summary>
+    /// 组合集合字段与元素字段，得到最终查询字段与嵌套路径
+    /// </summary>
+    private static (string fieldPath, string? nestedPath, PropertyInfo? lastProperty) BuildAnyFieldPath(
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        string? innerFieldPath,
+        PropertyInfo? innerProperty,
+        bool isElementSelf)
+    {
+        // 先判断集合字段是否为 nested（依赖配置特性）
+        var collectionIsNested = IsNestedCollectionProperty(collectionProperty);
+
+        if (collectionIsNested)
+        {
+            // nested 对象数组：将集合字段作为 nestedPath，字段路径只保留元素内的相对路径
+            // 例如 items.Any(x => x.Id == 1)
+            // nestedPath = "items"，fieldPath = "id"
+            var finalNestedPath = string.IsNullOrEmpty(collectionNestedPath)
+                ? collectionFieldPath
+                : $"{collectionNestedPath}.{collectionFieldPath}";
+
+            if (string.IsNullOrEmpty(innerFieldPath))
+            {
+                return (string.Empty, finalNestedPath, innerProperty);
+            }
+
+            return (innerFieldPath, finalNestedPath, innerProperty);
+        }
+
+        // 非 nested 数组：字段路径需要包含集合字段前缀，嵌套路径沿用外层嵌套信息
+        // 例如 items.Any(x => x.Id == 1) => fieldPath = "items.id"
+        if (isElementSelf)
+        {
+            return (collectionFieldPath, collectionNestedPath, collectionProperty);
+        }
+
+        if (string.IsNullOrEmpty(innerFieldPath))
+        {
+            return (string.Empty, collectionNestedPath, innerProperty);
+        }
+
+        return ($"{collectionFieldPath}.{innerFieldPath}", collectionNestedPath, innerProperty);
+    }
+
+    /// <summary>
+    /// 判断集合字段是否配置为 nested
+    /// </summary>
+    private static bool IsNestedCollectionProperty(PropertyInfo? propertyInfo)
+    {
+        if (propertyInfo == null)
+        {
+            return false;
+        }
+
+        var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
+        if (esFieldAttr?.IsNested != null)
+        {
+            return esFieldAttr.IsNested.Value;
+        }
+
+        // 与 IndexMappingBuilder 的逻辑保持一致：
+        // 1) 如果字段本身是嵌套类型，视为 nested
+        // 2) 如果是集合且元素类型为嵌套类型，视为 nested
+        var propertyType = propertyInfo.PropertyType;
+        if (IsNestedType(propertyType))
+        {
+            return true;
+        }
+
+        if (IsCollectionType(propertyType))
+        {
+            var elementType = GetCollectionElementType(propertyType);
+            if (elementType != null && IsNestedType(elementType))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 获取集合元素类型
+    /// </summary>
+    private static Type? GetCollectionElementType(Type? type)
+    {
+        if (type == null)
+        {
+            return null;
+        }
+
+        // 处理可空类型
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        // 数组类型
+        if (type.IsArray)
+        {
+            return type.GetElementType();
+        }
+
+        // 泛型集合类型
+        if (type.IsGenericType)
+        {
+            var genericArgs = type.GetGenericArguments();
+            if (genericArgs.Length > 0)
+            {
+                return genericArgs[0];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 判断是否为布尔类型（含可空）
+    /// </summary>
+    private static bool IsBooleanType(Type? type)
+    {
+        if (type == null)
+        {
+            return false;
+        }
+
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        return type == typeof(bool);
+    }
+
+    /// <summary>
+    /// 尝试获取成员表达式的类型
+    /// </summary>
+    private static bool TryGetMemberBooleanType(MemberExpression member, out Type? memberType)
+    {
+        memberType = null;
+
+        if (member.Member is PropertyInfo propertyInfo)
+        {
+            memberType = propertyInfo.PropertyType;
+            return true;
+        }
+
+        if (member.Member is FieldInfo fieldInfo)
+        {
+            memberType = fieldInfo.FieldType;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 提取 Any 的集合表达式和谓词
+    /// </summary>
+    private static bool TryExtractAnySource(MethodCallExpression methodCall, out Expression collectionExpression, out LambdaExpression? predicate)
+    {
+        predicate = null;
+
+        // Any 是扩展方法时，Object 为空，集合在第一个参数
+        if (methodCall.Object == null)
+        {
+            if (methodCall.Arguments.Count < 1)
+            {
+                collectionExpression = null!;
+                return false;
+            }
+
+            collectionExpression = methodCall.Arguments[0];
+            if (methodCall.Arguments.Count > 1)
+            {
+                predicate = UnwrapLambda(methodCall.Arguments[1]);
+            }
+
+            return true;
+        }
+
+        // 实例方法（较少见）
+        collectionExpression = methodCall.Object;
+        if (methodCall.Arguments.Count > 0)
+        {
+            predicate = UnwrapLambda(methodCall.Arguments[0]);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 解包 Lambda（处理 Quote）
+    /// </summary>
+    private static LambdaExpression? UnwrapLambda(Expression expression)
+    {
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Quote)
+        {
+            expression = unary.Operand;
+        }
+
+        return expression as LambdaExpression;
     }
 
     /// <summary>
@@ -401,6 +1154,17 @@ public static class ExpressionParser
         // 提取成员访问路径
         while (current is MemberExpression member)
         {
+            // 特殊处理 Nullable<T>.Value：
+            // 这是代码层面的空值解包，不是索引字段的一部分，不能出现在字段路径中。
+            // 例如 o.Field.Value 应等价于 o.Field，避免生成 "field.value" 的查询字段。
+            if (member.Member is PropertyInfo valuePropertyInfo &&
+                IsNullableValueProperty(valuePropertyInfo) &&
+                member.Expression != null)
+            {
+                current = member.Expression;
+                continue;
+            }
+
             // 如果是属性，保存 PropertyInfo 并获取索引名称
             if (member.Member is PropertyInfo propertyInfo)
             {
@@ -426,6 +1190,16 @@ public static class ExpressionParser
         }
 
         if (path.Count == 0)
+        {
+            return (null, null, null);
+        }
+
+        // 只允许从参数表达式（即查询对象本身）提取字段路径。
+        // 这样可以避免把闭包变量或本地变量当作索引字段，例如：
+        // var a = new List<string> { "3", "7" };
+        // a.Contains(o.DistributeType)
+        // 此时 a 是值集合，不应被识别为字段路径。
+        if (!IsParameterExpressionOfType<T>(current))
         {
             return (null, null, null);
         }
@@ -500,6 +1274,29 @@ public static class ExpressionParser
         }
 
         return type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
+    }
+
+    /// <summary>
+    /// 判断表达式是否为指定类型的参数表达式（允许显式转换）
+    /// </summary>
+    private static bool IsParameterExpressionOfType<T>(Expression? expression)
+    {
+        if (expression == null)
+        {
+            return false;
+        }
+
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return IsParameterExpressionOfType<T>(unary.Operand);
+        }
+
+        if (expression is ParameterExpression parameter)
+        {
+            return parameter.Type == typeof(T) || typeof(T).IsAssignableFrom(parameter.Type);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -632,12 +1429,30 @@ public static class ExpressionParser
         {
             if (member.Member is PropertyInfo propertyInfo)
             {
+                // Nullable<T>.Value 不是索引字段，跳过并继续向上查找真实字段
+                if (IsNullableValueProperty(propertyInfo) && member.Expression != null)
+                {
+                    current = member.Expression;
+                    continue;
+                }
+
                 lastProperty = propertyInfo;
             }
             current = member.Expression;
         }
 
         return lastProperty;
+    }
+
+    /// <summary>
+    /// 判断成员是否为 Nullable&lt;T&gt;.Value
+    /// </summary>
+    private static bool IsNullableValueProperty(PropertyInfo propertyInfo)
+    {
+        return propertyInfo.Name == "Value"
+            && propertyInfo.DeclaringType != null
+            && propertyInfo.DeclaringType.IsGenericType
+            && propertyInfo.DeclaringType.GetGenericTypeDefinition() == typeof(Nullable<>);
     }
 
     /// <summary>
@@ -1168,6 +1983,425 @@ public static class ExpressionParser
                type == typeof(decimal);
     }
 
+    /// <summary>
+    /// 将表达式转换为布尔树（不做 DNF 展开）
+    /// 目标：保留原始逻辑结构，避免 OR 组交叉组合带来的数量爆炸
+    /// </summary>
+    private static BoolNode<T>? ConvertToBoolNode<T>(Expression expression)
+    {
+        // 处理类型转换，保证解析一致性
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            return ConvertToBoolNode<T>(unary.Operand);
+        }
+
+        // 处理二元表达式
+        if (expression is BinaryExpression binary)
+        {
+            return binary.NodeType switch
+            {
+                // OR 运算符：构建 Or 节点并扁平化相邻的 Or 结构
+                ExpressionType.OrElse => MergeOrNodes<T>(
+                    ConvertToBoolNode<T>(binary.Left),
+                    ConvertToBoolNode<T>(binary.Right)
+                ),
+
+                // AND 运算符：构建 And 节点并扁平化相邻的 And 结构
+                ExpressionType.AndAlso => MergeAndNodes<T>(
+                    ConvertToBoolNode<T>(binary.Left),
+                    ConvertToBoolNode<T>(binary.Right)
+                ),
+
+                // 其他二元运算符（比较运算符）作为原子条件
+                _ => CreateAtomicBoolNode<T>(expression)
+            };
+        }
+
+        // 处理其他表达式类型（方法调用、成员访问等）作为原子条件
+        return CreateAtomicBoolNode<T>(expression);
+    }
+
+    /// <summary>
+    /// 创建原子布尔节点
+    /// </summary>
+    private static BoolNode<T>? CreateAtomicBoolNode<T>(Expression expression)
+    {
+        var condition = ParseAtomicCondition<T>(expression);
+        if (condition == null)
+        {
+            return null;
+        }
+
+        return new AtomicBoolNode<T>(condition);
+    }
+
+    /// <summary>
+    /// 合并 AND 节点并扁平化结构，避免多层嵌套
+    /// </summary>
+    private static BoolNode<T>? MergeAndNodes<T>(BoolNode<T>? left, BoolNode<T>? right)
+    {
+        if (left == null)
+        {
+            return right;
+        }
+
+        if (right == null)
+        {
+            return left;
+        }
+
+        var merged = new AndBoolNode<T>();
+        AppendNode(merged.Children, left, isAnd: true);
+        AppendNode(merged.Children, right, isAnd: true);
+        return merged;
+    }
+
+    /// <summary>
+    /// 合并 OR 节点并扁平化结构，避免多层嵌套
+    /// </summary>
+    private static BoolNode<T>? MergeOrNodes<T>(BoolNode<T>? left, BoolNode<T>? right)
+    {
+        if (left == null)
+        {
+            return right;
+        }
+
+        if (right == null)
+        {
+            return left;
+        }
+
+        var merged = new OrBoolNode<T>();
+        AppendNode(merged.Children, left, isAnd: false);
+        AppendNode(merged.Children, right, isAnd: false);
+        return merged;
+    }
+
+    /// <summary>
+    /// 将节点追加到目标列表中，同时进行同类型扁平化
+    /// </summary>
+    private static void AppendNode<T>(List<BoolNode<T>> target, BoolNode<T> node, bool isAnd)
+    {
+        if (isAnd && node is AndBoolNode<T> andNode)
+        {
+            target.AddRange(andNode.Children);
+            return;
+        }
+
+        if (!isAnd && node is OrBoolNode<T> orNode)
+        {
+            target.AddRange(orNode.Children);
+            return;
+        }
+
+        target.Add(node);
+    }
+
+    /// <summary>
+    /// 从布尔树生成查询
+    /// 核心思想：优先合并相同 nestedPath 的条件，避免多个 nested 查询
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromBoolNode<T>(BoolNode<T> node)
+    {
+        return node switch
+        {
+            AtomicBoolNode<T> atomic => BuildConditionQuery<T>(atomic.Condition),
+            AndBoolNode<T> andNode => BuildQueryFromAndNode<T>(andNode),
+            OrBoolNode<T> orNode => BuildQueryFromOrNode<T>(orNode),
+            _ => _ => { }
+        };
+    }
+
+    /// <summary>
+    /// 构建 AND 逻辑的查询
+    /// 规则：
+    /// - 同一 nestedPath 的子节点合并为一个 nested 查询（内部 must）
+    /// - 其他子节点保持原结构，使用 must 组合
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromAndNode<T>(AndBoolNode<T> node)
+    {
+        if (node.Children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (node.Children.Count == 1)
+        {
+            return BuildQueryFromBoolNode<T>(node.Children[0]);
+        }
+
+        var nestedGroups = new Dictionary<string, List<BoolNode<T>>>();
+        var regularNodes = new List<BoolNode<T>>();
+
+        foreach (var child in node.Children)
+        {
+            if (TryGetUniformNestedPath(child, out var nestedPath))
+            {
+                if (!nestedGroups.TryGetValue(nestedPath, out var list))
+                {
+                    list = new List<BoolNode<T>>();
+                    nestedGroups[nestedPath] = list;
+                }
+
+                list.Add(child);
+                continue;
+            }
+
+            regularNodes.Add(child);
+        }
+
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+
+        // 处理可合并的 nested 组
+        foreach (var (nestedPath, groupNodes) in nestedGroups)
+        {
+            var nestedActions = groupNodes
+                .Select(n => BuildQueryRelativeToNested<T>(n, nestedPath))
+                .ToArray();
+
+            queryActions.Add(query =>
+            {
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq =>
+                    {
+                        if (nestedActions.Length == 1)
+                        {
+                            nestedActions[0](nq);
+                        }
+                        else
+                        {
+                            nq.Bool(b => b.Must(nestedActions));
+                        }
+                    })
+                );
+            });
+        }
+
+        // 处理无法合并的节点
+        foreach (var child in regularNodes)
+        {
+            queryActions.Add(BuildQueryFromBoolNode<T>(child));
+        }
+
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Must(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 构建 OR 逻辑的查询
+    /// 规则：
+    /// - 同一 nestedPath 的子节点合并为一个 nested 查询（内部 should）
+    /// - 其他子节点保持原结构，使用 should 组合
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryFromOrNode<T>(OrBoolNode<T> node)
+    {
+        if (node.Children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (node.Children.Count == 1)
+        {
+            return BuildQueryFromBoolNode<T>(node.Children[0]);
+        }
+
+        var nestedGroups = new Dictionary<string, List<BoolNode<T>>>();
+        var regularNodes = new List<BoolNode<T>>();
+
+        foreach (var child in node.Children)
+        {
+            if (TryGetUniformNestedPath(child, out var nestedPath))
+            {
+                if (!nestedGroups.TryGetValue(nestedPath, out var list))
+                {
+                    list = new List<BoolNode<T>>();
+                    nestedGroups[nestedPath] = list;
+                }
+
+                list.Add(child);
+                continue;
+            }
+
+            regularNodes.Add(child);
+        }
+
+        var queryActions = new List<Action<QueryDescriptor<T>>>();
+
+        // 处理可合并的 nested 组
+        foreach (var (nestedPath, groupNodes) in nestedGroups)
+        {
+            var nestedActions = groupNodes
+                .Select(n => BuildQueryRelativeToNested<T>(n, nestedPath))
+                .ToArray();
+
+            queryActions.Add(query =>
+            {
+                query.Nested(n => n
+                    .Path(nestedPath)
+                    .Query(nq =>
+                    {
+                        if (nestedActions.Length == 1)
+                        {
+                            nestedActions[0](nq);
+                        }
+                        else
+                        {
+                            nq.Bool(b => b.Should(nestedActions));
+                        }
+                    })
+                );
+            });
+        }
+
+        // 处理无法合并的节点
+        foreach (var child in regularNodes)
+        {
+            queryActions.Add(BuildQueryFromBoolNode<T>(child));
+        }
+
+        if (queryActions.Count == 0)
+        {
+            return _ => { };
+        }
+
+        if (queryActions.Count == 1)
+        {
+            return queryActions[0];
+        }
+
+        return query => query.Bool(b => b.Should(queryActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 尝试判断节点是否完全属于同一 nestedPath（且不包含逻辑非）
+    /// 用于判断是否可以合并为一个 nested 查询
+    /// </summary>
+    private static bool TryGetUniformNestedPath<T>(BoolNode<T> node, out string nestedPath)
+    {
+        nestedPath = string.Empty;
+
+        switch (node)
+        {
+            case AtomicBoolNode<T> atomic:
+                if (atomic.Condition.IsNegated || string.IsNullOrEmpty(atomic.Condition.NestedPath))
+                {
+                    return false;
+                }
+
+                nestedPath = atomic.Condition.NestedPath!;
+                return true;
+
+            case AndBoolNode<T> andNode:
+                return TryGetUniformNestedPathFromChildren(andNode.Children, out nestedPath);
+
+            case OrBoolNode<T> orNode:
+                return TryGetUniformNestedPathFromChildren(orNode.Children, out nestedPath);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// 从子节点集合中判断是否存在统一的 nestedPath
+    /// </summary>
+    private static bool TryGetUniformNestedPathFromChildren<T>(IReadOnlyList<BoolNode<T>> children, out string nestedPath)
+    {
+        nestedPath = string.Empty;
+        if (children.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var child in children)
+        {
+            if (!TryGetUniformNestedPath(child, out var childPath))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(nestedPath))
+            {
+                nestedPath = childPath;
+                continue;
+            }
+
+            if (nestedPath != childPath)
+            {
+                return false;
+            }
+        }
+
+        return !string.IsNullOrEmpty(nestedPath);
+    }
+
+    /// <summary>
+    /// 在已知 nestedPath 的前提下生成相对查询（不再重复包 nested）
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildQueryRelativeToNested<T>(BoolNode<T> node, string nestedPath)
+    {
+        switch (node)
+        {
+            case AtomicBoolNode<T> atomic:
+                var fullFieldPath = $"{nestedPath}.{atomic.Condition.FieldPath}";
+                return q => ApplyConditionToQueryWithNegation(q, fullFieldPath, atomic.Condition);
+
+            case AndBoolNode<T> andNode:
+                return BuildRelativeBoolQuery(andNode.Children, nestedPath, useShould: false);
+
+            case OrBoolNode<T> orNode:
+                return BuildRelativeBoolQuery(orNode.Children, nestedPath, useShould: true);
+
+            default:
+                return _ => { };
+        }
+    }
+
+    /// <summary>
+    /// 构建相对于 nestedPath 的 Bool 查询（不包 nested）
+    /// </summary>
+    private static Action<QueryDescriptor<T>> BuildRelativeBoolQuery<T>(
+        IReadOnlyList<BoolNode<T>> children,
+        string nestedPath,
+        bool useShould)
+    {
+        if (children.Count == 0)
+        {
+            return _ => { };
+        }
+
+        var actions = children
+            .Select(child => BuildQueryRelativeToNested<T>(child, nestedPath))
+            .ToArray();
+
+        if (actions.Length == 1)
+        {
+            return actions[0];
+        }
+
+        return query =>
+        {
+            if (useShould)
+            {
+                query.Bool(b => b.Should(actions));
+            }
+            else
+            {
+                query.Bool(b => b.Must(actions));
+            }
+        };
+    }
+
 
     /// <summary>
     /// 将表达式转换为 DNF（析取范式）格式
@@ -1298,10 +2532,26 @@ public static class ExpressionParser
     /// </summary>
     private static QueryCondition<T>? ParseAtomicCondition<T>(Expression expression)
     {
-        // 处理类型转换
-        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        // 处理一元表达式（类型转换 / 逻辑非）
+        if (expression is UnaryExpression unary)
         {
-            return ParseAtomicCondition<T>(unary.Operand);
+            if (unary.NodeType == ExpressionType.Convert)
+            {
+                return ParseAtomicCondition<T>(unary.Operand);
+            }
+
+            // 逻辑非：将条件标记为取反
+            if (unary.NodeType == ExpressionType.Not)
+            {
+                var innerCondition = ParseAtomicCondition<T>(unary.Operand);
+                if (innerCondition == null)
+                {
+                    return null;
+                }
+
+                innerCondition.IsNegated = !innerCondition.IsNegated;
+                return innerCondition;
+            }
         }
 
         // 处理比较表达式
@@ -1365,15 +2615,45 @@ public static class ExpressionParser
                 var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
                 if (!string.IsNullOrEmpty(fieldPath) && value != null)
                 {
+                    // 如果值是集合，应该走 terms 查询，避免把集合 ToString 变成类型名
+                    if (value is IEnumerable enumerable && value is not string)
+                    {
+                        var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                        return new QueryCondition<T>
+                        {
+                            FieldPath = finalFieldPath,
+                            NestedPath = nestedPath,
+                            LastProperty = lastProperty,
+                            Value = enumerable,
+                            ConditionType = ConditionType.Terms
+                        };
+                    }
+
+                    // Contains 优先走 keyword 子字段，避免分词导致误匹配
+                    var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+                    
+                    if (useKeywordSubField || IsKeywordField(lastProperty))
+                    {
+                        return new QueryCondition<T>
+                        {
+                            FieldPath = exactMatchFieldPath,
+                            NestedPath = nestedPath,
+                            LastProperty = lastProperty,
+                            Value = value,
+                            ConditionType = ConditionType.Wildcard,
+                            WildcardPattern = $"*{value}*"
+                        };
+                    }
+
                     return new QueryCondition<T>
                     {
                         FieldPath = fieldPath,
                         NestedPath = nestedPath,
                         LastProperty = lastProperty,
                         Value = value,
-                        ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.Match,
-                        WildcardPattern = IsKeywordField(lastProperty) ? $"*{value}*" : null,
-                        MatchText = IsKeywordField(lastProperty) ? null : value.ToString()
+                        ConditionType = ConditionType.Match,
+                        MatchText = value.ToString()
                     };
                 }
             }
@@ -1404,15 +2684,31 @@ public static class ExpressionParser
                 var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
                 if (!string.IsNullOrEmpty(fieldPath) && value != null)
                 {
+                    // StartsWith 优先走 keyword 子字段，避免分词导致误匹配
+                    var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+                    
+                    if (useKeywordSubField || IsKeywordField(lastProperty))
+                    {
+                        return new QueryCondition<T>
+                        {
+                            FieldPath = exactMatchFieldPath,
+                            NestedPath = nestedPath,
+                            LastProperty = lastProperty,
+                            Value = value,
+                            ConditionType = ConditionType.Wildcard,
+                            WildcardPattern = $"{value}*"
+                        };
+                    }
+
                     return new QueryCondition<T>
                     {
                         FieldPath = fieldPath,
                         NestedPath = nestedPath,
                         LastProperty = lastProperty,
                         Value = value,
-                        ConditionType = IsKeywordField(lastProperty) ? ConditionType.Wildcard : ConditionType.MatchPhrasePrefix,
-                        WildcardPattern = IsKeywordField(lastProperty) ? $"{value}*" : null,
-                        MatchText = IsKeywordField(lastProperty) ? null : value.ToString()
+                        ConditionType = ConditionType.MatchPhrasePrefix,
+                        MatchText = value.ToString()
                     };
                 }
             }
@@ -1424,9 +2720,13 @@ public static class ExpressionParser
                 var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(methodCall.Object, methodCall.Arguments[0]);
                 if (!string.IsNullOrEmpty(fieldPath) && value != null)
                 {
-                    var finalFieldPath = IsKeywordField(lastProperty) 
-                        ? fieldPath 
-                        : GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    // EndsWith 优先走 keyword 子字段，避免分词导致误匹配
+                    var exactMatchFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+                    var useKeywordSubField = !string.Equals(exactMatchFieldPath, fieldPath, StringComparison.Ordinal);
+                    var finalFieldPath = (useKeywordSubField || IsKeywordField(lastProperty))
+                        ? exactMatchFieldPath
+                        : fieldPath;
+
                     return new QueryCondition<T>
                     {
                         FieldPath = finalFieldPath,
@@ -1436,6 +2736,17 @@ public static class ExpressionParser
                         ConditionType = ConditionType.Wildcard,
                         WildcardPattern = $"*{value}"
                     };
+                }
+            }
+        }
+        else if (methodName == "Any")
+        {
+            if (TryExtractAnySource(methodCall, out var collectionExpression, out var predicate))
+            {
+                var (collectionFieldPath, collectionNestedPath, collectionProperty) = ExtractFieldFromExpression<T>(collectionExpression);
+                if (!string.IsNullOrEmpty(collectionFieldPath) && predicate != null)
+                {
+                    return ParseAnyPredicate<T>(predicate, collectionFieldPath, collectionNestedPath, collectionProperty);
                 }
             }
         }
@@ -1633,6 +2944,12 @@ public static class ExpressionParser
 
         foreach (var condition in group.Conditions)
         {
+            // 含有逻辑非的嵌套条件，不参与嵌套路径合并，避免语义错误
+            if (condition.IsNegated && !string.IsNullOrEmpty(condition.NestedPath))
+            {
+                return null;
+            }
+
             if (string.IsNullOrEmpty(condition.NestedPath))
             {
                 // 该条件不是嵌套条件
@@ -1686,6 +3003,12 @@ public static class ExpressionParser
 
             foreach (var condition in group.Conditions)
             {
+                // 含有逻辑非的嵌套条件，不参与公共嵌套路径判断
+                if (condition.IsNegated && !string.IsNullOrEmpty(condition.NestedPath))
+                {
+                    return null;
+                }
+
                 if (string.IsNullOrEmpty(condition.NestedPath))
                 {
                     // 该条件不是嵌套条件
@@ -1768,14 +3091,14 @@ public static class ExpressionParser
         {
             var condition = group.Conditions[0];
             var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-            return query => ApplyConditionToQuery(query, fullFieldPath, condition);
+            return query => ApplyConditionToQueryWithNegation(query, fullFieldPath, condition);
         }
 
         // 多个条件，使用 Bool.Must 组合（相对于嵌套路径）
         var queryActions = group.Conditions.Select(condition =>
         {
             var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-            return new Action<QueryDescriptor<T>>(q => ApplyConditionToQuery(q, fullFieldPath, condition));
+            return new Action<QueryDescriptor<T>>(q => ApplyConditionToQueryWithNegation(q, fullFieldPath, condition));
         }).ToArray();
 
         return query => query.Bool(b => b.Must(queryActions));
@@ -1800,12 +3123,12 @@ public static class ExpressionParser
 
         // 按嵌套路径分组条件
         var nestedGroups = group.Conditions
-            .Where(c => !string.IsNullOrEmpty(c.NestedPath))
+            .Where(c => !string.IsNullOrEmpty(c.NestedPath) && !c.IsNegated)
             .GroupBy(c => c.NestedPath!)
             .ToList();
 
         var regularConditions = group.Conditions
-            .Where(c => string.IsNullOrEmpty(c.NestedPath))
+            .Where(c => string.IsNullOrEmpty(c.NestedPath) || c.IsNegated)
             .ToList();
 
         var queryActions = new List<Action<QueryDescriptor<T>>>();
@@ -1825,7 +3148,7 @@ public static class ExpressionParser
                     var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
                     query.Nested(n => n
                         .Path(nestedPath)
-                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                        .Query(nq => ApplyConditionToQueryWithNegation(nq, fullFieldPath, condition))
                     );
                 });
             }
@@ -1841,7 +3164,7 @@ public static class ExpressionParser
                             var nestedQueryActions = conditions.Select(condition =>
                             {
                                 var fullFieldPath = $"{nestedPath}.{condition.FieldPath}";
-                                return new Action<QueryDescriptor<T>>(nq2 => ApplyConditionToQuery(nq2, fullFieldPath, condition));
+                                return new Action<QueryDescriptor<T>>(nq2 => ApplyConditionToQueryWithNegation(nq2, fullFieldPath, condition));
                             }).ToArray();
 
                             if (nestedQueryActions.Length == 1)
@@ -1889,17 +3212,43 @@ public static class ExpressionParser
             var fullFieldPath = $"{condition.NestedPath}.{condition.FieldPath}";
             return query =>
             {
-                query.Nested(n => n
-                    .Path(condition.NestedPath)
-                    .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
-                );
+                // 逻辑非的嵌套条件：需要在外层使用 must_not 包裹 nested 查询
+                if (condition.IsNegated)
+                {
+                    query.Bool(b => b.MustNot(mn => mn.Nested(n => n
+                        .Path(condition.NestedPath)
+                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                    )));
+                }
+                else
+                {
+                    query.Nested(n => n
+                        .Path(condition.NestedPath)
+                        .Query(nq => ApplyConditionToQuery(nq, fullFieldPath, condition))
+                    );
+                }
             };
         }
         else
         {
             // 普通查询
-            return query => ApplyConditionToQuery(query, condition.FieldPath, condition);
+            return query => ApplyConditionToQueryWithNegation(query, condition.FieldPath, condition);
         }
+    }
+
+    /// <summary>
+    /// 应用条件到查询描述符（支持逻辑非）
+    /// 逻辑非通过 must_not 包裹原子条件，避免丢失条件或错误命中
+    /// </summary>
+    private static void ApplyConditionToQueryWithNegation<T>(QueryDescriptor<T> query, string fieldPath, QueryCondition<T> condition)
+    {
+        if (condition.IsNegated)
+        {
+            query.Bool(b => b.MustNot(mn => ApplyConditionToQuery(mn, fieldPath, condition)));
+            return;
+        }
+
+        ApplyConditionToQuery(query, fieldPath, condition);
     }
 
     /// <summary>
@@ -1937,6 +3286,9 @@ public static class ExpressionParser
                         query.Terms(ts => ts.Field(fieldPath).Terms(termsQueryField));
                     }
                 }
+                break;
+            case ConditionType.CustomQuery:
+                condition.CustomQueryAction?.Invoke(query);
                 break;
         }
     }
@@ -2003,7 +3355,8 @@ internal enum ConditionType
     Match,               // Match 查询（用于 text 类型字段）
     MatchPhrasePrefix,   // Match Phrase Prefix 查询（用于 StartsWith）
     Wildcard,            // Wildcard 查询（用于 Contains、EndsWith）
-    Terms                // Terms 查询（用于 In 查询）
+    Terms,               // Terms 查询（用于 In 查询）
+    CustomQuery          // 自定义查询（用于复杂 Any 等）
 }
 
 /// <summary>
@@ -2017,6 +3370,43 @@ internal class DnfExpression<T>
     /// OR 组列表，每个组是一个 AND 条件组
     /// </summary>
     public List<AndConditionGroup<T>> OrGroups { get; } = new();
+}
+
+/// <summary>
+/// 布尔树节点基类
+/// 用于在不做 DNF 展开的情况下保留表达式结构
+/// </summary>
+internal abstract class BoolNode<T>
+{
+}
+
+/// <summary>
+/// 原子节点（单个查询条件）
+/// </summary>
+internal sealed class AtomicBoolNode<T> : BoolNode<T>
+{
+    public AtomicBoolNode(QueryCondition<T> condition)
+    {
+        Condition = condition;
+    }
+
+    public QueryCondition<T> Condition { get; }
+}
+
+/// <summary>
+/// AND 节点
+/// </summary>
+internal sealed class AndBoolNode<T> : BoolNode<T>
+{
+    public List<BoolNode<T>> Children { get; } = new();
+}
+
+/// <summary>
+/// OR 节点
+/// </summary>
+internal sealed class OrBoolNode<T> : BoolNode<T>
+{
+    public List<BoolNode<T>> Children { get; } = new();
 }
 
 /// <summary>
@@ -2068,6 +3458,11 @@ internal class QueryCondition<T>
     public ConditionType ConditionType { get; set; }
 
     /// <summary>
+    /// 是否为逻辑非条件（如 !x.Field.Contains(...)）
+    /// </summary>
+    public bool IsNegated { get; set; }
+
+    /// <summary>
     /// Wildcard 模式（用于 Wildcard 查询）
     /// </summary>
     public string? WildcardPattern { get; set; }
@@ -2076,6 +3471,11 @@ internal class QueryCondition<T>
     /// Match 文本（用于 Match 和 MatchPhrasePrefix 查询）
     /// </summary>
     public string? MatchText { get; set; }
+
+    /// <summary>
+    /// 自定义查询动作（用于复杂条件）
+    /// </summary>
+    public Action<QueryDescriptor<T>>? CustomQueryAction { get; set; }
 }
 
 
