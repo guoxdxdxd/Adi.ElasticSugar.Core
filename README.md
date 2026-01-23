@@ -118,7 +118,8 @@ classDiagram
         +Skip(int) EsSearchQueryable
         +Take(int) EsSearchQueryable
         +TrackTotalHits() EsSearchQueryable
-        +ToListAsync() Task~SearchResponse~
+        +ToListAsync(int? pageSize) Task~IReadOnlyList~
+        +ToSearchResponseAsync() Task~SearchResponse~
         +ToPageAsync(int, int) Task~SearchResponse~
     }
     
@@ -867,19 +868,22 @@ query
 
 ### 4.8 执行查询
 
-使用 `ToListAsync()` 方法执行查询并返回结果。
+使用 `ToListAsync()` 方法执行查询并返回文档列表。
 
 ```csharp
-// 执行查询并返回结果
-var response = await query.ToListAsync();
+// 执行查询并返回文档列表（内部使用 SearchAfter 滚动查询）
+var documents = await query.ToListAsync(pageSize: 1000);
 
-// 获取文档列表
-var documents = response.Documents;
+// 完整示例：直接获取文档列表
+var orders = await _elasticsearchClient.Search<OrderDto>("orders*")
+    .Where(x => x.Status == 1)
+    .Where(x => x.CreatedDate >= DateTime.Now.AddDays(-7))
+    .OrderByDesc(x => x.CreatedDate)
+    .Skip(0)
+    .Take(20)
+    .ToListAsync();
 
-// 获取总记录数（需要调用 TrackTotalHits）
-var total = response.Total;
-
-// 完整示例
+// 如果需要总数或原始响应信息
 var response = await _elasticsearchClient.Search<OrderDto>("orders*")
     .Where(x => x.Status == 1)
     .Where(x => x.CreatedDate >= DateTime.Now.AddDays(-7))
@@ -887,9 +891,8 @@ var response = await _elasticsearchClient.Search<OrderDto>("orders*")
     .Skip(0)
     .Take(20)
     .TrackTotalHits()
-    .ToListAsync();
+    .ToSearchResponseAsync();
 
-var orders = response.Documents.ToList();
 var totalCount = response.Total;
 ```
 
@@ -1071,7 +1074,7 @@ public async Task<List<OrderDto>> SearchOrdersAsync(SearchRequest req)
         // 执行查询
         .ToListAsync();
     
-    return response.Documents.ToList();
+    return response.ToList();
 }
 ```
 
@@ -1443,7 +1446,17 @@ foreach (var order in orders)
 
 #### ToListAsync()
 
-执行查询并返回结果。
+执行查询并返回文档列表（内部使用 SearchAfter 分页滚动）。
+
+**返回：**
+- `Task<IReadOnlyList<T>>`: 异步返回文档列表
+
+**参数：**
+- `pageSize` (int?): 单次查询数量，默认 1000
+
+#### ToSearchResponseAsync()
+
+执行查询并返回原始响应信息。
 
 **返回：**
 - `Task<SearchResponse<T>>`: 异步返回查询结果
@@ -1468,7 +1481,7 @@ foreach (var order in orders)
 ```csharp
 var response = await query
     .TrackTotalHits()
-    .ToListAsync();
+    .ToSearchResponseAsync();
 
 var total = response.Total;  // 总记录数
 ```

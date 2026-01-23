@@ -1,15 +1,15 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <Version>1.1.0</Version>
+    <Version>1.1.2</Version>
     <Authors>Adi</Authors>
     <Description>ElasticSearch LINQ 查询构建器，类似 SqlSugar 的 ORM 风格</Description>
-    <!-- <PackageId>AdiElasticSugar.Core</PackageId> -->
-    <PackageVersion>1.1.0</PackageVersion>
+    <PackageId>AdiElasticSugar.Core</PackageId>
+    <PackageVersion>1.1.2</PackageVersion>
     <PackageProjectUrl>https://github.com/Adi/ElasticSugar.Core</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Adi/ElasticSugar.Core</RepositoryUrl>
     <PackageTags>Elasticsearch;Elastic;Search;LINQ;ORM;Query;Builder;SqlSugar</PackageTags>
