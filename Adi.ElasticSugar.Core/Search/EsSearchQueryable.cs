@@ -147,6 +147,33 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
+    /// 执行查询并返回命中数量
+    /// </summary>
+    /// <returns>命中总数</returns>
+    public async Task<long> CountAsync()
+    {
+        // Count 查询只依赖 Where 条件：
+        // 1) 不需要排序/分页配置
+        // 2) Size=0 仅返回命中统计，避免拉取文档
+        // 3) 通过 TrackTotalHits 保证统计准确
+        var descriptor = new SearchRequestDescriptor<T>();
+        descriptor = descriptor.Index(_index);
+
+        var queryAction = BuildQuery();
+        if (queryAction != null)
+        {
+            descriptor = descriptor.Query(queryAction);
+        }
+
+        descriptor = descriptor.Size(0);
+        descriptor = descriptor.TrackTotalHits(new Elastic.Clients.Elasticsearch.Core.Search.TrackHits(true));
+
+        var response = await _client.SearchAsync<T>(descriptor);
+        EnsureSuccess(response);
+        return response.HitsMetadata?.Total?.Value ?? 0;
+    }
+
+    /// <summary>
     /// 执行查询并返回原始 SearchResponse
     /// 适合需要查看原始响应信息的场景
     /// </summary>
