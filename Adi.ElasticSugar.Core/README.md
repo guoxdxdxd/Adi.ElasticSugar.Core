@@ -864,6 +864,12 @@ query
     .TrackTotalHits();  // 启用跟踪总命中数，可以获取总记录数
 ```
 
+也可以显式关闭：
+
+```csharp
+query.TrackTotalHits(false);
+```
+
 **注意：** 如果不调用此方法，Elasticsearch 默认只返回前 10,000 条记录的总数。
 
 ### 4.8 执行查询
@@ -908,6 +914,33 @@ var response = await _elasticsearchClient.Search<OrderDto>("orders*")
 
 var orders = response.Documents.ToList();
 var totalCount = response.Total;
+```
+
+### 4.10 常用快捷方法与聚合
+
+```csharp
+// 获取第一条数据
+var first = await query.FirstOrDefaultAsync();
+var mustFirst = await query.FirstAsync();
+
+// 判断是否存在
+var exists = await query.AnyAsync();
+
+// 临时附加条件统计
+var count = await query.CountAsync(x => x.Amount >= 100);
+
+// 指标聚合
+var avg = await query.AvgAsync(x => x.Amount);
+var min = await query.MinAsync(x => x.Amount);
+var max = await query.MaxAsync(x => x.Amount);
+
+// 分组统计（Terms 聚合）
+var buckets = await query.GroupByAsync(x => x.Status, size: 10);
+
+// Source 字段裁剪
+var list = await query
+    .Select(x => x.OrderNo, x => x.Amount)
+    .ToListAsync();
 ```
 
 ## 五、索引名称生成
