@@ -1028,41 +1028,9 @@ internal static class IndexMappingBuilder
         }
     }
 
-    /// <summary>
-    /// 判断是否为嵌套类型
-    /// 引用类型（除了 string）且不是集合类型，会被识别为嵌套文档
-    /// </summary>
-    private static bool IsNestedType(Type type)
-    {
-        // 处理可空类型
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
-        {
-            type = type.GetGenericArguments()[0];
-        }
+    private static bool IsNestedType(Type type) => TypeHelper.IsNestedType(type);
 
-        // 基本类型不是嵌套
-        if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(Guid) || type == typeof(decimal))
-        {
-            return false;
-        }
-
-        // 引用类型且不是集合，视为嵌套
-        return !type.IsValueType && !IsCollectionType(type);
-    }
-
-    /// <summary>
-    /// 判断是否为集合类型
-    /// </summary>
-    private static bool IsCollectionType(Type type)
-    {
-        // 处理可空类型
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
-        {
-            type = type.GetGenericArguments()[0];
-        }
-
-        return type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
-    }
+    private static bool IsCollectionType(Type type) => TypeHelper.IsCollectionType(type);
 
     /// <summary>
     /// 获取集合的元素类型
