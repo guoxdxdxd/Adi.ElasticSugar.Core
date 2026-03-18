@@ -1,3 +1,5 @@
+using System.Collections;
+
 namespace Adi.ElasticSugar.Core.Utils;
 
 /// <summary>
@@ -31,6 +33,39 @@ public static class TypeHelper
         }
 
         return type.IsEnum;
+    }
+
+    /// <summary>
+    /// 判断是否为嵌套文档类型
+    /// 引用类型（除了 string、DateTime 等基本类型）且不是集合类型，会被识别为嵌套文档
+    /// </summary>
+    public static bool IsNestedType(Type type)
+    {
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        if (type.IsPrimitive || type == typeof(string) || type == typeof(DateTime)
+            || type == typeof(DateTimeOffset) || type == typeof(Guid) || type == typeof(decimal))
+        {
+            return false;
+        }
+
+        return !type.IsValueType && !IsCollectionType(type);
+    }
+
+    /// <summary>
+    /// 判断是否为集合类型
+    /// </summary>
+    public static bool IsCollectionType(Type type)
+    {
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0];
+        }
+
+        return type != typeof(string) && typeof(IEnumerable).IsAssignableFrom(type);
     }
 }
 

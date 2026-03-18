@@ -487,7 +487,7 @@ public class EsSearchQueryable<T>
                 continue;
             }
 
-            var (fieldPath, _) = ExtractFieldPathWithProperty(field);
+            var (fieldPath, _, _) = ExtractFieldPathWithProperty(field);
             if (string.IsNullOrEmpty(fieldPath))
             {
                 throw new InvalidOperationException("无法解析聚合字段路径");
@@ -546,19 +546,18 @@ public class EsSearchQueryable<T>
             {
                 foreach (var (field, descending) in _orderByExpressions)
                 {
-                    var (fieldPath, propertyInfo) = ExtractFieldPathWithProperty(field);
+                    var (fieldPath, nestedPath, propertyInfo) = ExtractFieldPathWithProperty(field);
                     if (!string.IsNullOrEmpty(fieldPath))
                     {
-                        // 排序需要使用精确匹配字段（对于字符串类型的 text 字段，需要使用 .keyword）
                         var finalFieldPath = ExpressionParser.GetFieldPathForExactMatch(fieldPath, propertyInfo);
-                        if (descending)
+                        sort.Field(finalFieldPath, fs =>
                         {
-                            sort.Field(finalFieldPath, fs => fs.Order(SortOrder.Desc));
-                        }
-                        else
-                        {
-                            sort.Field(finalFieldPath, fs => fs.Order(SortOrder.Asc));
-                        }
+                            fs.Order(descending ? SortOrder.Desc : SortOrder.Asc);
+                            if (!string.IsNullOrEmpty(nestedPath))
+                            {
+                                fs.Nested(n => n.Path(nestedPath));
+                            }
+                        });
                     }
                 }
             });
@@ -589,7 +588,7 @@ public class EsSearchQueryable<T>
     /// </summary>
     private string GetAggregationName(Expression<Func<T, object>> expression)
     {
-        var (fieldPath, propertyInfo) = ExtractFieldPathWithProperty(expression);
+        var (fieldPath, _, propertyInfo) = ExtractFieldPathWithProperty(expression);
         if (!string.IsNullOrEmpty(propertyInfo?.Name))
         {
             return FieldNameHelper.GetIndexFieldName(propertyInfo);
@@ -643,16 +642,21 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
-    /// 从 Lambda 表达式中提取字段路径和 PropertyInfo
+    /// 从 Lambda 表达式中提取字段路径、嵌套路径和 PropertyInfo
     /// 字段名会进行转换：如果配置了 EsFieldAttribute.FieldName，则使用配置的名称；
     /// 否则将 PascalCase 转换为 camelCase，以匹配 Elasticsearch 客户端序列化时的字段命名约定
     /// </summary>
-    private (string? fieldPath, PropertyInfo? propertyInfo) ExtractFieldPathWithProperty(Expression<Func<T, object>> expression)
+    /// <returns>
+    /// fieldPath: 完整字段路径（例如 "address.city"）
+    /// nestedPath: 嵌套路径（例如 "address"），非嵌套字段为 null
+    /// propertyInfo: 最后一个属性的 PropertyInfo
+    /// </returns>
+    private (string? fieldPath, string? nestedPath, PropertyInfo? propertyInfo) ExtractFieldPathWithProperty(Expression<Func<T, object>> expression)
     {
         var memberExpression = GetMemberExpression(expression.Body);
         if (memberExpression == null)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         var path = new List<string>();
@@ -661,20 +665,14 @@ public class EsSearchQueryable<T>
 
         while (current is MemberExpression member)
         {
-            // 如果是属性，保存 PropertyInfo 并获取字段名称
             if (member.Member is PropertyInfo propertyInfo)
             {
                 properties.Insert(0, propertyInfo);
-                
-                // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
-                // 如果没有配置 FieldName，会自动将 PascalCase 转换为 camelCase
                 var fieldName = FieldNameHelper.GetIndexFieldName(propertyInfo);
-                
                 path.Insert(0, fieldName);
             }
             else
             {
-                // 非属性成员（如字段），将 PascalCase 转换为 camelCase
                 path.Insert(0, FieldNameHelper.GetIndexFieldName(member.Member.Name));
             }
             
@@ -683,9 +681,23 @@ public class EsSearchQueryable<T>
 
         var fieldPath = path.Count > 0 ? string.Join(".", path) : null;
         var lastProperty = properties.Count > 0 ? properties[properties.Count - 1] : null;
+        string? nestedPath = null;
 
-        return (fieldPath, lastProperty);
+        if (path.Count > 1 && properties.Count > 0)
+        {
+            var firstProperty = properties[0];
+            var esFieldAttr = firstProperty.GetCustomAttribute<EsFieldAttribute>();
+            bool isNested = esFieldAttr?.IsNested ?? TypeHelper.IsNestedType(firstProperty.PropertyType);
+            if (isNested)
+            {
+                nestedPath = path[0];
+            }
+        }
+
+        return (fieldPath, nestedPath, lastProperty);
     }
+
+
 
 
     /// <summary>
@@ -693,7 +705,7 @@ public class EsSearchQueryable<T>
     /// </summary>
     private string? ExtractFieldPath(Expression<Func<T, object>> expression)
     {
-        var (fieldPath, _) = ExtractFieldPathWithProperty(expression);
+        var (fieldPath, _, _) = ExtractFieldPathWithProperty(expression);
         return fieldPath;
     }
 
