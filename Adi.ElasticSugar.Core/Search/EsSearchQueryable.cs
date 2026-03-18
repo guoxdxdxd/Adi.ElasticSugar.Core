@@ -5,6 +5,7 @@ using System.Text.Json;
 using Adi.ElasticSugar.Core.Models;
 using Adi.ElasticSugar.Core.Utils;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Aggregations;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 
 namespace Adi.ElasticSugar.Core.Search;
@@ -24,6 +25,7 @@ public class EsSearchQueryable<T>
     private int? _skip;
     private int? _take;
     private bool _trackTotalHits = false;
+    private List<string>? _sourceIncludes;
 
     /// <summary>
     /// 构造函数
@@ -126,6 +128,53 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
+    /// 设置是否跟踪总命中数
+    /// </summary>
+    /// <param name="enabled">是否启用</param>
+    /// <returns>查询构建器（支持链式调用）</returns>
+    public EsSearchQueryable<T> TrackTotalHits(bool enabled)
+    {
+        _trackTotalHits = enabled;
+        return this;
+    }
+
+    /// <summary>
+    /// 仅返回指定字段（Source Includes）
+    /// </summary>
+    /// <param name="fields">需要返回的字段</param>
+    /// <returns>查询构建器（支持链式调用）</returns>
+    public EsSearchQueryable<T> Select(params Expression<Func<T, object>>[] fields)
+    {
+        if (fields == null || fields.Length == 0)
+        {
+            throw new ArgumentException("字段不能为空", nameof(fields));
+        }
+
+        var includes = new List<string>();
+        foreach (var field in fields)
+        {
+            if (field == null)
+            {
+                continue;
+            }
+
+            var fieldPath = ExtractFieldPath(field);
+            if (!string.IsNullOrEmpty(fieldPath))
+            {
+                includes.Add(fieldPath);
+            }
+        }
+
+        if (includes.Count == 0)
+        {
+            throw new InvalidOperationException("无法解析字段路径");
+        }
+
+        _sourceIncludes = includes;
+        return this;
+    }
+
+    /// <summary>
     /// 执行查询并返回结果列表
     /// 默认使用 SearchAfter 分页滚动获取全量数据，避免一次性拉取过大数据量
     /// </summary>
@@ -171,6 +220,66 @@ public class EsSearchQueryable<T>
         var response = await _client.SearchAsync<T>(descriptor);
         EnsureSuccess(response);
         return response.HitsMetadata?.Total?.Value ?? 0;
+    }
+
+    /// <summary>
+    /// 执行查询并返回命中数量（额外条件）
+    /// </summary>
+    /// <param name="predicate">临时附加条件</param>
+    /// <returns>命中总数</returns>
+    public async Task<long> CountAsync(Expression<Func<T, bool>> predicate)
+    {
+        if (predicate == null)
+        {
+            throw new ArgumentNullException(nameof(predicate));
+        }
+
+        var expressions = new List<Expression<Func<T, bool>>>(_whereExpressions)
+        {
+            predicate
+        };
+
+        var queryAction = BuildQuery(expressions);
+        var descriptor = BuildCountDescriptor(queryAction);
+        var response = await _client.SearchAsync<T>(descriptor);
+        EnsureSuccess(response);
+        return response.HitsMetadata?.Total?.Value ?? 0;
+    }
+
+    /// <summary>
+    /// 获取第一条记录（无则返回默认值）
+    /// </summary>
+    public async Task<T?> FirstOrDefaultAsync()
+    {
+        var descriptor = BuildSearchDescriptor();
+        descriptor = descriptor.Size(1);
+
+        var response = await _client.SearchAsync<T>(descriptor);
+        EnsureSuccess(response);
+        if (response.Documents == null || response.Documents.Count == 0)
+        {
+            return default;
+        }
+
+        return response.Documents.First();
+    }
+
+    /// <summary>
+    /// 获取第一条记录（无则抛异常）
+    /// </summary>
+    public async Task<T> FirstAsync()
+    {
+        var result = await FirstOrDefaultAsync();
+        return result ?? throw new InvalidOperationException("查询未返回任何记录");
+    }
+
+    /// <summary>
+    /// 判断是否存在符合条件的记录
+    /// </summary>
+    public async Task<bool> AnyAsync()
+    {
+        var count = await CountAsync();
+        return count > 0;
     }
 
     /// <summary>
@@ -452,6 +561,39 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
+    /// 对指定字段进行 Avg 聚合（单字段）
+    /// </summary>
+    /// <param name="field">聚合字段</param>
+    /// <returns>聚合结果（可能为 null）</returns>
+    public async Task<double?> AvgAsync(Expression<Func<T, object>> field)
+    {
+        return await ExecuteSingleMetricAggregationAsync(field, (aggs, name, path) =>
+            aggs.Avg(name, s => s.Field(path)));
+    }
+
+    /// <summary>
+    /// 对指定字段进行 Min 聚合（单字段）
+    /// </summary>
+    /// <param name="field">聚合字段</param>
+    /// <returns>聚合结果（可能为 null）</returns>
+    public async Task<double?> MinAsync(Expression<Func<T, object>> field)
+    {
+        return await ExecuteSingleMetricAggregationAsync(field, (aggs, name, path) =>
+            aggs.Min(name, s => s.Field(path)));
+    }
+
+    /// <summary>
+    /// 对指定字段进行 Max 聚合（单字段）
+    /// </summary>
+    /// <param name="field">聚合字段</param>
+    /// <returns>聚合结果（可能为 null）</returns>
+    public async Task<double?> MaxAsync(Expression<Func<T, object>> field)
+    {
+        return await ExecuteSingleMetricAggregationAsync(field, (aggs, name, path) =>
+            aggs.Max(name, s => s.Field(path)));
+    }
+
+    /// <summary>
     /// 对多个字段进行 Sum 聚合
     /// 通过表达式进行聚合计算，适合在业务层按 LINQ 风格使用
     /// </summary>
@@ -524,6 +666,49 @@ public class EsSearchQueryable<T>
     }
 
     /// <summary>
+    /// Terms 聚合（分组统计）
+    /// </summary>
+    /// <param name="field">分组字段</param>
+    /// <param name="size">桶数量</param>
+    /// <returns>分组统计结果</returns>
+    public async Task<IReadOnlyList<TermsAggResult>> GroupByAsync(Expression<Func<T, object>> field, int size = 10)
+    {
+        if (field == null)
+        {
+            throw new ArgumentNullException(nameof(field));
+        }
+
+        if (size <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(size), "size 必须大于 0");
+        }
+
+        var (fieldPath, _, propertyInfo) = ExtractFieldPathWithProperty(field);
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            throw new InvalidOperationException("无法解析分组字段路径");
+        }
+
+        var aggName = GetAggregationName(field);
+        var finalFieldPath = ExpressionParser.GetFieldPathForExactMatch(fieldPath, propertyInfo);
+        var queryAction = BuildQuery();
+        var descriptor = BuildAggregationDescriptor(queryAction);
+
+        descriptor = descriptor.Aggregations(aggs =>
+            aggs.Terms(aggName, t => t.Field(finalFieldPath).Size(size)));
+
+        var response = await _client.SearchAsync<T>(descriptor);
+        EnsureSuccess(response);
+
+        if (response?.Aggregations == null || !response.Aggregations.TryGetValue(aggName, out var aggregate))
+        {
+            return Array.Empty<TermsAggResult>();
+        }
+
+        return ExtractTermsBuckets(aggregate);
+    }
+
+    /// <summary>
     /// 构建搜索描述符
     /// </summary>
     /// <returns>搜索描述符</returns>
@@ -574,6 +759,16 @@ public class EsSearchQueryable<T>
             descriptor = descriptor.Size(_take.Value);
         }
 
+        // Source Includes（字段裁剪）
+        if (_sourceIncludes != null && _sourceIncludes.Count > 0)
+        {
+            var sourceFilter = new Elastic.Clients.Elasticsearch.Core.Search.SourceFilter
+            {
+                Includes = _sourceIncludes.ToArray()
+            };
+            descriptor = descriptor.Source(new Elastic.Clients.Elasticsearch.Core.Search.SourceConfig(sourceFilter));
+        }
+
         // 跟踪总命中数
         if (_trackTotalHits)
         {
@@ -610,15 +805,23 @@ public class EsSearchQueryable<T>
     /// <returns>查询动作</returns>
     private Action<QueryDescriptor<T>>? BuildQuery()
     {
-        if (_whereExpressions.Count == 0)
+        return BuildQuery(_whereExpressions);
+    }
+
+    /// <summary>
+    /// 构建查询条件（按指定表达式集合）
+    /// </summary>
+    private static Action<QueryDescriptor<T>>? BuildQuery(IReadOnlyList<Expression<Func<T, bool>>> expressions)
+    {
+        if (expressions.Count == 0)
         {
             return null; // 返回 null 表示使用默认查询（MatchAll）
         }
 
         // 解析所有表达式，组合成 Bool 查询
         var mustActions = new List<Action<QueryDescriptor<T>>>();
-        
-        foreach (var expression in _whereExpressions)
+
+        foreach (var expression in expressions)
         {
             var action = ExpressionParser.ParseExpression<T>(expression);
             if (action != null)
@@ -639,6 +842,116 @@ public class EsSearchQueryable<T>
 
         // 多个条件组合成 Bool.Must 查询
         return q => q.Bool(b => b.Must(mustActions.ToArray()));
+    }
+
+    /// <summary>
+    /// 构建聚合查询描述符（仅依赖查询条件）
+    /// </summary>
+    private SearchRequestDescriptor<T> BuildAggregationDescriptor(Action<QueryDescriptor<T>>? queryAction)
+    {
+        var descriptor = new SearchRequestDescriptor<T>();
+        descriptor = descriptor.Index(_index);
+
+        if (queryAction != null)
+        {
+            descriptor = descriptor.Query(queryAction);
+        }
+
+        descriptor = descriptor.Size(0);
+        return descriptor;
+    }
+
+    /// <summary>
+    /// 构建 Count 查询描述符
+    /// </summary>
+    private SearchRequestDescriptor<T> BuildCountDescriptor(Action<QueryDescriptor<T>>? queryAction)
+    {
+        var descriptor = BuildAggregationDescriptor(queryAction);
+        descriptor = descriptor.TrackTotalHits(new Elastic.Clients.Elasticsearch.Core.Search.TrackHits(true));
+        return descriptor;
+    }
+
+    /// <summary>
+    /// 执行单字段聚合并获取结果
+    /// </summary>
+    private async Task<double?> ExecuteSingleMetricAggregationAsync(
+        Expression<Func<T, object>> field,
+        Action<AggregationDescriptor<T>, string, string> aggBuilder)
+    {
+        if (field == null)
+        {
+            throw new ArgumentNullException(nameof(field));
+        }
+
+        var (fieldPath, _, _) = ExtractFieldPathWithProperty(field);
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            throw new InvalidOperationException("无法解析聚合字段路径");
+        }
+
+        var aggName = GetAggregationName(field);
+        var queryAction = BuildQuery();
+        var descriptor = BuildAggregationDescriptor(queryAction);
+        descriptor = descriptor.Aggregations(aggs => aggBuilder(aggs, aggName, fieldPath));
+
+        var response = await _client.SearchAsync<T>(descriptor);
+        EnsureSuccess(response);
+
+        if (response?.Aggregations == null || !response.Aggregations.TryGetValue(aggName, out var aggregate))
+        {
+            return null;
+        }
+
+        return GetMetricAggregateValue(aggregate);
+    }
+
+    /// <summary>
+    /// 解析指标聚合值
+    /// </summary>
+    private static double? GetMetricAggregateValue(object aggregate)
+    {
+        if (aggregate == null)
+        {
+            return null;
+        }
+
+        dynamic dynamicAgg = aggregate;
+        object? value = dynamicAgg.Value;
+        if (value == null)
+        {
+            return null;
+        }
+
+        return Convert.ToDouble(value);
+    }
+
+    /// <summary>
+    /// 解析 Terms 聚合桶
+    /// </summary>
+    private static IReadOnlyList<TermsAggResult> ExtractTermsBuckets(object aggregate)
+    {
+        var results = new List<TermsAggResult>();
+        if (aggregate == null)
+        {
+            return results;
+        }
+
+        dynamic dynamicAgg = aggregate;
+        foreach (var bucket in dynamicAgg.Buckets)
+        {
+            object? keyObj = bucket.Key;
+            object? docCountObj = bucket.DocCount;
+            var key = keyObj?.ToString() ?? string.Empty;
+            var count = docCountObj == null ? 0 : Convert.ToInt64(docCountObj);
+
+            results.Add(new TermsAggResult
+            {
+                Key = key,
+                Count = count
+            });
+        }
+
+        return results;
     }
 
     /// <summary>
