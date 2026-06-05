@@ -2000,6 +2000,18 @@ public static class ExpressionParser
             return values.Select(v => String(((DateTimeOffset)v).ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"))).ToArray();
         }
 
+        // 布尔类型：Elasticsearch 要求 terms 值为 JSON 布尔字面量 true/false，不能是 C# 的 "True"/"False" 字符串
+        if (valueType == typeof(bool))
+        {
+            return values.Select(v => Boolean((bool)v)).ToArray();
+        }
+
+        // 根据字段类型推断布尔值（兼容可空布尔字段的 Contains 场景）
+        if (propertyInfo != null && IsBooleanType(propertyInfo.PropertyType))
+        {
+            return values.Select(v => Boolean(Convert.ToBoolean(v))).ToArray();
+        }
+
         // 默认转换为字符串
         return values.Select(v => String(v?.ToString() ?? string.Empty)).ToArray();
     }
