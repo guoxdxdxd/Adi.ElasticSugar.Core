@@ -51,10 +51,9 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().IntField.Should().Be(30);
-        result.Documents.First().BoolField.Should().BeTrue();
+        result.Should().HaveCount(1);
+        result.First().IntField.Should().Be(30);
+        result.First().BoolField.Should().BeTrue();
     }
 
     /// <summary>
@@ -72,9 +71,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().IntField.Should().Be(30);
+        result.Should().HaveCount(1);
+        result.First().IntField.Should().Be(30);
     }
 
     /// <summary>
@@ -92,9 +90,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.IntField == 10 || x.IntField == 30 || x.IntField == 50).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.IntField == 10 || x.IntField == 30 || x.IntField == 50).Should().BeTrue();
     }
 
     /// <summary>
@@ -112,9 +109,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4);
-        result.Documents.All(x => 
+        result.Should().HaveCount(4);
+        result.All(x => 
             (x.IntField >= 20 && x.IntField <= 40) || 
             (x.IntField == 50 && x.BoolField == true)
         ).Should().BeTrue();
@@ -135,9 +131,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.TextField.Contains("Product") && x.IntField >= 30).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.TextField.Contains("Product") && x.IntField >= 30).Should().BeTrue();
     }
 
     /// <summary>
@@ -157,9 +152,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => 
+        result.Should().HaveCount(3);
+        result.All(x => 
             x.DateTimeField >= startDate && 
             x.DateTimeField <= endDate && 
             x.IntField >= 20
@@ -184,9 +178,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => 
+        result.Should().HaveCount(3);
+        result.All(x => 
             intValues.Contains(x.IntField) && 
             keywordValues.Contains(x.TextField)
         ).Should().BeTrue();
@@ -210,9 +203,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        var documents = result.Documents.ToList();
+        result.Should().HaveCount(2);
+        var documents = result.ToList();
         documents[0].IntField.Should().Be(30);
         documents[1].IntField.Should().Be(40);
     }
@@ -234,9 +226,8 @@ public class CombinedQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        var documents = result.Documents.ToList();
+        result.Should().HaveCount(3);
+        var documents = result.ToList();
         documents[0].IntField.Should().Be(50);
         documents[1].IntField.Should().Be(40);
         documents[2].IntField.Should().Be(30);
@@ -256,7 +247,7 @@ public class CombinedQueryTests : TestBase
             .Where(x => x.IntField >= 20)
             .TrackTotalHits()
             .Take(2)
-            .ToListAsync();
+            .ToSearchResponseAsync();
 
         // Assert
         result.IsSuccess().Should().BeTrue();

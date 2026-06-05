@@ -49,9 +49,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().IntField.Should().Be(20);
+        result.Should().HaveCount(1);
+        result.First().IntField.Should().Be(20);
     }
 
     /// <summary>
@@ -69,9 +68,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.IntField > 30).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.IntField > 30).Should().BeTrue();
     }
 
     /// <summary>
@@ -89,9 +87,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.IntField >= 30).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.IntField >= 30).Should().BeTrue();
     }
 
     /// <summary>
@@ -109,9 +106,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.IntField < 30).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.IntField < 30).Should().BeTrue();
     }
 
     /// <summary>
@@ -129,9 +125,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.IntField <= 30).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.IntField <= 30).Should().BeTrue();
     }
 
     /// <summary>
@@ -149,9 +144,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4);
-        result.Documents.All(x => x.IntField != 20).Should().BeTrue();
+        result.Should().HaveCount(4);
+        result.All(x => x.IntField != 20).Should().BeTrue();
     }
 
     /// <summary>
@@ -169,9 +163,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().LongField.Should().Be(200L);
+        result.Should().HaveCount(1);
+        result.First().LongField.Should().Be(200L);
     }
 
     /// <summary>
@@ -189,9 +182,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.LongField >= 200L && x.LongField <= 400L).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.LongField >= 200L && x.LongField <= 400L).Should().BeTrue();
     }
 
     /// <summary>
@@ -209,9 +201,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().DoubleField.Should().Be(20.5);
+        result.Should().HaveCount(1);
+        result.First().DoubleField.Should().Be(20.5);
     }
 
     /// <summary>
@@ -229,11 +220,10 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
         // 应该返回 2 条记录：20.5 和 30.5（都满足 > 20.0 且 < 40.0）
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.DoubleField > 20.0 && x.DoubleField < 40.0).Should().BeTrue();
-        result.Documents.Select(x => x.DoubleField).Should().Contain(new[] { 20.5, 30.5 });
+        result.Should().HaveCount(2);
+        result.All(x => x.DoubleField > 20.0 && x.DoubleField < 40.0).Should().BeTrue();
+        result.Select(x => x.DoubleField).Should().Contain(new[] { 20.5, 30.5 });
     }
 
     /// <summary>
@@ -251,9 +241,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().DecimalField.Should().Be(30.5m);
+        result.Should().HaveCount(1);
+        result.First().DecimalField.Should().Be(30.5m);
     }
 
     /// <summary>
@@ -281,9 +270,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableIntField == 100).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableIntField == 100).Should().BeTrue();
     }
 
     /// <summary>
@@ -302,9 +290,8 @@ public class NumericQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => values.Contains(x.IntField)).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => values.Contains(x.IntField)).Should().BeTrue();
     }
 }
 

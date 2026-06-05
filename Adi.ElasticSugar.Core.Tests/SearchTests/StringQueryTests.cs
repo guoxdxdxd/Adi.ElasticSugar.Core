@@ -48,9 +48,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextField.Should().Be("Hello World");
+        result.Should().HaveCount(1);
+        result.First().TextField.Should().Be("Hello World");
     }
 
     /// <summary>
@@ -68,9 +67,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.KeywordField == "STATUS-ACTIVE").Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.KeywordField == "STATUS-ACTIVE").Should().BeTrue();
     }
 
     /// <summary>
@@ -88,9 +86,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.TextField.Contains("Hello")).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.TextField.Contains("Hello")).Should().BeTrue();
     }
 
     /// <summary>
@@ -108,9 +105,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.TextField.StartsWith("Hello")).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.TextField.StartsWith("Hello")).Should().BeTrue();
     }
 
     /// <summary>
@@ -128,9 +124,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextField.Should().Be("Hello World");
+        result.Should().HaveCount(1);
+        result.First().TextField.Should().Be("Hello World");
     }
 
     /// <summary>
@@ -148,9 +143,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.TextField != "Hello World").Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.TextField != "Hello World").Should().BeTrue();
     }
 
     /// <summary>
@@ -168,9 +162,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.KeywordField != "STATUS-ACTIVE").Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.KeywordField != "STATUS-ACTIVE").Should().BeTrue();
     }
 
     /// <summary>
@@ -189,9 +182,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => statuses.Contains(x.KeywordField)).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => statuses.Contains(x.KeywordField)).Should().BeTrue();
     }
 
     /// <summary>
@@ -219,9 +211,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableStringField == "Value1").Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableStringField == "Value1").Should().BeTrue();
     }
 }
 

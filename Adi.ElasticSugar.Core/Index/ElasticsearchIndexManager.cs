@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Adi.ElasticSugar.Core.Models;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
+using Elastic.Transport.Products.Elasticsearch;
 
 namespace Adi.ElasticSugar.Core.Index;
 
@@ -74,6 +75,13 @@ public class ElasticsearchIndexManager
 
             if (!createIndexResponse.IsSuccess())
             {
+                // 并发创建同一索引时，其他线程可能已先创建成功
+                if (IsIndexAlreadyExistsError(createIndexResponse))
+                {
+                    _indexCache.AddOrUpdate(indexName, true, (_, _) => true);
+                    return true;
+                }
+
                 throw new Exception($"创建索引失败: {indexName}, {createIndexResponse.DebugInformation}");
             }
 
@@ -144,6 +152,15 @@ public class ElasticsearchIndexManager
     public void ClearCache()
     {
         _indexCache.Clear();
+    }
+
+    /// <summary>
+    /// 判断创建索引失败是否因为索引已存在
+    /// </summary>
+    private static bool IsIndexAlreadyExistsError(ElasticsearchResponse response)
+    {
+        return response.ElasticsearchServerError?.Error?.Type == "resource_already_exists_exception"
+            || (response.DebugInformation?.Contains("resource_already_exists_exception", StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     /// <summary>

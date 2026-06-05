@@ -49,9 +49,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.BoolField == true).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField == true).Should().BeTrue();
     }
 
     /// <summary>
@@ -69,9 +68,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.BoolField == false).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.BoolField == false).Should().BeTrue();
     }
 
     /// <summary>
@@ -89,9 +87,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.BoolField).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField).Should().BeTrue();
     }
 
     /// <summary>
@@ -109,9 +106,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.BoolField != true).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.BoolField != true).Should().BeTrue();
     }
 
     /// <summary>
@@ -140,9 +136,61 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableBoolField == true).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableBoolField == true).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试可空 bool 字段的非空判断与 In 查询组合。
+    /// 该场景对应 `x.NullableBoolField != null && confirmStatuses.Contains(x.NullableBoolField)`，
+    /// 应翻译为 exists + terms(true/false)，而不是字符串 "True"/"False"。
+    /// </summary>
+    [Fact]
+    public async Task Where_NullableBoolField_NotNull_AndIn_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var documents = new[]
+        {
+            new TestDocument { Id = "20", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test20", NullableBoolField = true },
+            new TestDocument { Id = "21", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test21", NullableBoolField = false },
+            new TestDocument { Id = "22", EsDateTime = new DateTime(2024, 1, 15), TextField = "Test22", NullableBoolField = null },
+        };
+
+        await Client.PushDocumentsAsync(documents);
+        await RefreshIndexAsync("test-documents-2024-01");
+
+        var indexName = "test-documents-2024-01";
+        var confirmStatuses = new bool?[] { true };
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.NullableBoolField != null && confirmStatuses.Contains(x.NullableBoolField))
+            .ToListAsync();
+
+        // Assert
+        result.Should().HaveCount(1);
+        result.Single().Id.Should().Be("20");
+        result.All(x => x.NullableBoolField == true).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试 bool 字段的 In 查询
+    /// </summary>
+    [Fact]
+    public async Task Where_BoolField_In_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+        var boolValues = new[] { true };
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => boolValues.Contains(x.BoolField))
+            .ToListAsync();
+
+        // Assert
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField).Should().BeTrue();
     }
 }
 
