@@ -380,6 +380,122 @@ public class EnumQueryTests : TestBase
     }
 
     /// <summary>
+    /// 测试可空枚举字段的非空判断与 In 查询组合。
+    /// 该场景对应 `x.NullableOrderStatus != null && statuses.Contains(x.NullableOrderStatus)`，
+    /// 应翻译为 exists + terms，而不是错误地查询 `nullableOrderStatus.hasValue`。
+    /// </summary>
+    [Fact]
+    public async Task Where_NullableOrderStatus_NotNull_AndIn_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var documents = new[]
+        {
+            new TestDocument
+            {
+                Id = "40",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test40",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = OrderStatus.Processing
+            },
+            new TestDocument
+            {
+                Id = "41",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test41",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = OrderStatus.Completed
+            },
+            new TestDocument
+            {
+                Id = "42",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test42",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = null
+            },
+            new TestDocument
+            {
+                Id = "43",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test43",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = OrderStatus.Cancelled
+            },
+        };
+
+        await Client.PushDocumentsAsync(documents);
+        await RefreshIndexAsync("test-documents-2024-01");
+
+        var indexName = "test-documents-2024-01";
+        var statuses = new OrderStatus?[] { OrderStatus.Processing, OrderStatus.Completed };
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.NullableOrderStatus != null && statuses.Contains(x.NullableOrderStatus))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(2);
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "40", "41" });
+        result.Documents.All(x => x.NullableOrderStatus.HasValue).Should().BeTrue();
+        result.Documents.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 测试可空枚举字段的空值判断应翻译为 must_not exists。
+    /// </summary>
+    [Fact]
+    public async Task Where_NullableOrderStatus_EqualsNull_ShouldReturnDocumentsWithoutValue()
+    {
+        // Arrange
+        var documents = new[]
+        {
+            new TestDocument
+            {
+                Id = "50",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test50",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = OrderStatus.Processing
+            },
+            new TestDocument
+            {
+                Id = "51",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test51",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = null
+            },
+            new TestDocument
+            {
+                Id = "52",
+                EsDateTime = new DateTime(2024, 1, 15),
+                TextField = "Test52",
+                OrderStatus = OrderStatus.Pending,
+                NullableOrderStatus = null
+            },
+        };
+
+        await Client.PushDocumentsAsync(documents);
+        await RefreshIndexAsync("test-documents-2024-01");
+
+        var indexName = "test-documents-2024-01";
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => x.NullableOrderStatus == null)
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(7);
+        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "51", "52" });
+        result.Documents.All(x => x.NullableOrderStatus == null).Should().BeTrue();
+    }
+
+    /// <summary>
     /// 测试枚举类型不支持范围查询（应该抛出异常）
     /// 根据 ExpressionParser 的逻辑，枚举类型不支持 >, <, >=, <= 等范围查询
     /// 注意：异常会被 Elasticsearch 客户端包装为 UnexpectedTransportException

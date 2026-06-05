@@ -603,6 +603,32 @@ public static class ExpressionParser
                 return null;
             }
 
+            if (TryCreateAnyExistsConditionFromHasValueComparison<T>(
+                    binary.Left,
+                    binary.Right,
+                    parameter,
+                    collectionFieldPath,
+                    collectionNestedPath,
+                    collectionProperty,
+                    comparisonType.Value,
+                    out var existsCondition))
+            {
+                return existsCondition;
+            }
+
+            if (TryCreateAnyExistsConditionFromNullComparison<T>(
+                    binary.Left,
+                    binary.Right,
+                    parameter,
+                    collectionFieldPath,
+                    collectionNestedPath,
+                    collectionProperty,
+                    comparisonType.Value,
+                    out existsCondition))
+            {
+                return existsCondition;
+            }
+
             if (!TryExtractAnyFieldAndValue(binary.Left, binary.Right, parameter, out var innerFieldPath, out var innerProperty, out var value, out var isElementSelf))
             {
                 return null;
@@ -696,6 +722,17 @@ public static class ExpressionParser
         // 布尔成员访问（例如 items.Any(x => x.IsEnabled)）
         if (expression is MemberExpression member)
         {
+            if (TryCreateAnyExistsConditionFromNullableHasValueMember<T>(
+                    member,
+                    parameter,
+                    collectionFieldPath,
+                    collectionNestedPath,
+                    collectionProperty,
+                    out var existsCondition))
+            {
+                return existsCondition;
+            }
+
             if (!TryGetMemberBooleanType(member, out var memberType) || !IsBooleanType(memberType))
             {
                 return null;
@@ -1068,6 +1105,25 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>>? ParseMemberExpression<T>(MemberExpression member)
     {
+        if (TryExtractNullableHasValueField<T>(member, out var hasValueFieldPath, out var hasValueNestedPath, out var hasValueProperty))
+        {
+            return query =>
+            {
+                if (!string.IsNullOrEmpty(hasValueNestedPath))
+                {
+                    var fullFieldPath = $"{hasValueNestedPath}.{hasValueFieldPath}";
+                    query.Nested(n => n
+                        .Path(hasValueNestedPath)
+                        .Query(nq => nq.Exists(e => e.Field(fullFieldPath)))
+                    );
+                }
+                else
+                {
+                    query.Exists(e => e.Field(hasValueFieldPath));
+                }
+            };
+        }
+
         // 检查成员的类型是否为布尔类型
         Type? memberType = null;
         
@@ -1417,6 +1473,17 @@ public static class ExpressionParser
     private static bool IsNullableValueProperty(PropertyInfo propertyInfo)
     {
         return propertyInfo.Name == "Value"
+            && propertyInfo.DeclaringType != null
+            && propertyInfo.DeclaringType.IsGenericType
+            && propertyInfo.DeclaringType.GetGenericTypeDefinition() == typeof(Nullable<>);
+    }
+
+    /// <summary>
+    /// 判断成员是否为 Nullable&lt;T&gt;.HasValue
+    /// </summary>
+    private static bool IsNullableHasValueProperty(PropertyInfo propertyInfo)
+    {
+        return propertyInfo.Name == "HasValue"
             && propertyInfo.DeclaringType != null
             && propertyInfo.DeclaringType.IsGenericType
             && propertyInfo.DeclaringType.GetGenericTypeDefinition() == typeof(Nullable<>);
@@ -2529,6 +2596,24 @@ public static class ExpressionParser
             {
                 return null;
             }
+
+            if (TryCreateExistsConditionFromHasValueComparison<T>(
+                    binary.Left,
+                    binary.Right,
+                    comparisonType.Value,
+                    out var existsCondition))
+            {
+                return existsCondition;
+            }
+
+            if (TryCreateExistsConditionFromNullComparison<T>(
+                    binary.Left,
+                    binary.Right,
+                    comparisonType.Value,
+                    out existsCondition))
+            {
+                return existsCondition;
+            }
             
             var (fieldPath, nestedPath, lastProperty, value) = ExtractFieldAndValue<T>(binary.Left, binary.Right);
             if (string.IsNullOrEmpty(fieldPath) || value == null)
@@ -2561,6 +2646,11 @@ public static class ExpressionParser
         // 处理成员访问（布尔字段的直接引用）
         if (expression is MemberExpression member)
         {
+            if (TryCreateExistsConditionFromNullableHasValueMember<T>(member, out var existsCondition))
+            {
+                return existsCondition;
+            }
+
             return ParseMemberCondition<T>(member);
         }
 
@@ -2726,6 +2816,11 @@ public static class ExpressionParser
     /// </summary>
     private static QueryCondition<T>? ParseMemberCondition<T>(MemberExpression member)
     {
+        if (TryCreateExistsConditionFromNullableHasValueMember<T>(member, out var existsCondition))
+        {
+            return existsCondition;
+        }
+
         Type? memberType = null;
         
         if (member.Member is PropertyInfo propertyInfo)
@@ -2770,6 +2865,442 @@ public static class ExpressionParser
             Value = true,
             ConditionType = ConditionType.Comparison
         };
+    }
+
+    /// <summary>
+    /// 创建 exists 查询条件。
+    /// 用于承载 `field != null`、`field == null` 与 `field.HasValue` 等语义。
+    /// </summary>
+    private static QueryCondition<T> CreateExistsCondition<T>(
+        string fieldPath,
+        string? nestedPath,
+        PropertyInfo? lastProperty,
+        bool isNegated = false)
+    {
+        return new QueryCondition<T>
+        {
+            FieldPath = fieldPath,
+            NestedPath = nestedPath,
+            LastProperty = lastProperty,
+            ConditionType = ConditionType.Exists,
+            IsNegated = isNegated
+        };
+    }
+
+    /// <summary>
+    /// 解析 `nullableField.HasValue`。
+    /// </summary>
+    private static bool TryCreateExistsConditionFromNullableHasValueMember<T>(
+        MemberExpression member,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (!TryExtractNullableHasValueField<T>(member, out var fieldPath, out var nestedPath, out var lastProperty))
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(fieldPath, nestedPath, lastProperty);
+        return true;
+    }
+
+    /// <summary>
+    /// 解析 `nullableField.HasValue == true/false` 与 `nullableField.HasValue != true/false`。
+    /// </summary>
+    private static bool TryCreateExistsConditionFromHasValueComparison<T>(
+        Expression left,
+        Expression right,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (comparisonType != ComparisonType.Equals && comparisonType != ComparisonType.NotEquals)
+        {
+            return false;
+        }
+
+        if (TryCreateExistsConditionFromHasValueComparisonSide<T>(left, right, comparisonType, out condition))
+        {
+            return true;
+        }
+
+        return TryCreateExistsConditionFromHasValueComparisonSide<T>(right, left, comparisonType, out condition);
+    }
+
+    /// <summary>
+    /// 解析 `field == null` 与 `field != null`。
+    /// Elasticsearch 中 null 通常表现为字段不存在，因此映射为 exists / must_not exists。
+    /// </summary>
+    private static bool TryCreateExistsConditionFromNullComparison<T>(
+        Expression left,
+        Expression right,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (comparisonType != ComparisonType.Equals && comparisonType != ComparisonType.NotEquals)
+        {
+            return false;
+        }
+
+        if (TryCreateExistsConditionFromNullComparisonSide<T>(left, right, comparisonType, out condition))
+        {
+            return true;
+        }
+
+        return TryCreateExistsConditionFromNullComparisonSide<T>(right, left, comparisonType, out condition);
+    }
+
+    /// <summary>
+    /// 解析 Any 谓词中的 `nullableField.HasValue`。
+    /// </summary>
+    private static bool TryCreateAnyExistsConditionFromNullableHasValueMember<T>(
+        MemberExpression member,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (!TryExtractAnyNullableHasValueField(member, parameter, out var innerFieldPath, out var innerProperty, out var isElementSelf))
+        {
+            return false;
+        }
+
+        var (fieldPath, nestedPath, lastProperty) = BuildAnyFieldPath(
+            collectionFieldPath,
+            collectionNestedPath,
+            collectionProperty,
+            innerFieldPath,
+            innerProperty,
+            isElementSelf);
+
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(fieldPath, nestedPath, lastProperty);
+        return true;
+    }
+
+    /// <summary>
+    /// 解析 Any 谓词中的 `nullableField.HasValue == true/false` 与 `!= true/false`。
+    /// </summary>
+    private static bool TryCreateAnyExistsConditionFromHasValueComparison<T>(
+        Expression left,
+        Expression right,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (comparisonType != ComparisonType.Equals && comparisonType != ComparisonType.NotEquals)
+        {
+            return false;
+        }
+
+        if (TryCreateAnyExistsConditionFromHasValueComparisonSide<T>(
+                left,
+                right,
+                parameter,
+                collectionFieldPath,
+                collectionNestedPath,
+                collectionProperty,
+                comparisonType,
+                out condition))
+        {
+            return true;
+        }
+
+        return TryCreateAnyExistsConditionFromHasValueComparisonSide<T>(
+            right,
+            left,
+            parameter,
+            collectionFieldPath,
+            collectionNestedPath,
+            collectionProperty,
+            comparisonType,
+            out condition);
+    }
+
+    /// <summary>
+    /// 解析 Any 谓词中的 `field == null` 与 `field != null`。
+    /// </summary>
+    private static bool TryCreateAnyExistsConditionFromNullComparison<T>(
+        Expression left,
+        Expression right,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (comparisonType != ComparisonType.Equals && comparisonType != ComparisonType.NotEquals)
+        {
+            return false;
+        }
+
+        if (TryCreateAnyExistsConditionFromNullComparisonSide<T>(
+                left,
+                right,
+                parameter,
+                collectionFieldPath,
+                collectionNestedPath,
+                collectionProperty,
+                comparisonType,
+                out condition))
+        {
+            return true;
+        }
+
+        return TryCreateAnyExistsConditionFromNullComparisonSide<T>(
+            right,
+            left,
+            parameter,
+            collectionFieldPath,
+            collectionNestedPath,
+            collectionProperty,
+            comparisonType,
+            out condition);
+    }
+
+    private static bool TryCreateExistsConditionFromHasValueComparisonSide<T>(
+        Expression memberSide,
+        Expression valueSide,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (!TryExtractNullableHasValueField<T>(memberSide, out var fieldPath, out var nestedPath, out var lastProperty))
+        {
+            return false;
+        }
+
+        if (EvaluateExpression(valueSide) is not bool hasValue)
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(
+            fieldPath,
+            nestedPath,
+            lastProperty,
+            isNegated: ShouldNegateExists(comparisonType, hasValue));
+
+        return true;
+    }
+
+    private static bool TryCreateExistsConditionFromNullComparisonSide<T>(
+        Expression fieldSide,
+        Expression valueSide,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(fieldSide);
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return false;
+        }
+
+        if (!IsNullComparisonValue<T>(valueSide))
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(
+            fieldPath,
+            nestedPath,
+            lastProperty,
+            isNegated: comparisonType == ComparisonType.Equals);
+
+        return true;
+    }
+
+    private static bool TryCreateAnyExistsConditionFromHasValueComparisonSide<T>(
+        Expression memberSide,
+        Expression valueSide,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (!TryExtractAnyNullableHasValueField(memberSide, parameter, out var innerFieldPath, out var innerProperty, out var isElementSelf))
+        {
+            return false;
+        }
+
+        if (EvaluateExpression(valueSide) is not bool hasValue)
+        {
+            return false;
+        }
+
+        var (fieldPath, nestedPath, lastProperty) = BuildAnyFieldPath(
+            collectionFieldPath,
+            collectionNestedPath,
+            collectionProperty,
+            innerFieldPath,
+            innerProperty,
+            isElementSelf);
+
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(
+            fieldPath,
+            nestedPath,
+            lastProperty,
+            isNegated: ShouldNegateExists(comparisonType, hasValue));
+
+        return true;
+    }
+
+    private static bool TryCreateAnyExistsConditionFromNullComparisonSide<T>(
+        Expression fieldSide,
+        Expression valueSide,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty,
+        ComparisonType comparisonType,
+        out QueryCondition<T>? condition)
+    {
+        condition = null;
+
+        if (!TryExtractAnyFieldFromExpression(fieldSide, parameter, out var innerFieldPath, out var innerProperty, out var isElementSelf))
+        {
+            return false;
+        }
+
+        if (!IsNullComparisonValueForAny(valueSide, parameter))
+        {
+            return false;
+        }
+
+        var (fieldPath, nestedPath, lastProperty) = BuildAnyFieldPath(
+            collectionFieldPath,
+            collectionNestedPath,
+            collectionProperty,
+            innerFieldPath,
+            innerProperty,
+            isElementSelf);
+
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return false;
+        }
+
+        condition = CreateExistsCondition<T>(
+            fieldPath,
+            nestedPath,
+            lastProperty,
+            isNegated: comparisonType == ComparisonType.Equals);
+
+        return true;
+    }
+
+    private static bool TryExtractNullableHasValueField<T>(
+        Expression expression,
+        out string fieldPath,
+        out string? nestedPath,
+        out PropertyInfo? lastProperty)
+    {
+        fieldPath = string.Empty;
+        nestedPath = null;
+        lastProperty = null;
+
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            expression = unary.Operand;
+        }
+
+        if (expression is not MemberExpression member ||
+            member.Member is not PropertyInfo propertyInfo ||
+            !IsNullableHasValueProperty(propertyInfo) ||
+            member.Expression == null)
+        {
+            return false;
+        }
+
+        var extracted = ExtractFieldFromExpression<T>(member.Expression);
+        if (string.IsNullOrEmpty(extracted.fieldPath))
+        {
+            return false;
+        }
+
+        fieldPath = extracted.fieldPath!;
+        nestedPath = extracted.nestedPath;
+        lastProperty = extracted.lastProperty;
+        return true;
+    }
+
+    private static bool TryExtractAnyNullableHasValueField(
+        Expression expression,
+        ParameterExpression parameter,
+        out string? innerFieldPath,
+        out PropertyInfo? innerProperty,
+        out bool isElementSelf)
+    {
+        innerFieldPath = null;
+        innerProperty = null;
+        isElementSelf = false;
+
+        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        {
+            expression = unary.Operand;
+        }
+
+        if (expression is not MemberExpression member ||
+            member.Member is not PropertyInfo propertyInfo ||
+            !IsNullableHasValueProperty(propertyInfo) ||
+            member.Expression == null)
+        {
+            return false;
+        }
+
+        return TryExtractAnyFieldFromExpression(member.Expression, parameter, out innerFieldPath, out innerProperty, out isElementSelf);
+    }
+
+    private static bool IsNullComparisonValue<T>(Expression expression)
+    {
+        var (fieldPath, _, _) = ExtractFieldFromExpression<T>(expression);
+        return string.IsNullOrEmpty(fieldPath) && EvaluateExpression(expression) == null;
+    }
+
+    private static bool IsNullComparisonValueForAny(Expression expression, ParameterExpression parameter)
+    {
+        if (TryExtractAnyFieldFromExpression(expression, parameter, out _, out _, out _))
+        {
+            return false;
+        }
+
+        return EvaluateExpression(expression) == null;
+    }
+
+    private static bool ShouldNegateExists(ComparisonType comparisonType, bool hasValue)
+    {
+        return comparisonType == ComparisonType.Equals ? !hasValue : hasValue;
     }
 
     /// <summary>
@@ -3229,6 +3760,10 @@ public static class ExpressionParser
                 ApplyComparisonToQuery(query, fieldPath, condition.ComparisonType!.Value, condition.Value!, condition.LastProperty);
                 break;
 
+            case ConditionType.Exists:
+                query.Exists(e => e.Field(fieldPath));
+                break;
+
             case ConditionType.Match:
                 query.Match(m => m.Field(fieldPath).Query(condition.MatchText ?? string.Empty));
                 break;
@@ -3319,6 +3854,7 @@ internal enum ComparisonType
 internal enum ConditionType
 {
     Comparison,          // 比较查询（==, !=, >, <, >=, <=）
+    Exists,              // Exists 查询（用于 null / HasValue 语义）
     Match,               // Match 查询（用于 text 类型字段）
     MatchPhrasePrefix,   // Match Phrase Prefix 查询（用于 StartsWith）
     Wildcard,            // Wildcard 查询（用于 Contains、EndsWith）
