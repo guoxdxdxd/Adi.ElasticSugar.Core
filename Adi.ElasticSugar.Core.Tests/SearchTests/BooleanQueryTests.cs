@@ -49,9 +49,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.BoolField == true).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField == true).Should().BeTrue();
     }
 
     /// <summary>
@@ -69,9 +68,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.BoolField == false).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.BoolField == false).Should().BeTrue();
     }
 
     /// <summary>
@@ -89,9 +87,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.BoolField).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField).Should().BeTrue();
     }
 
     /// <summary>
@@ -109,9 +106,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.BoolField != true).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.BoolField != true).Should().BeTrue();
     }
 
     /// <summary>
@@ -140,9 +136,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableBoolField == true).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableBoolField == true).Should().BeTrue();
     }
 
     /// <summary>
@@ -173,10 +168,9 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.Single().Id.Should().Be("20");
-        result.Documents.All(x => x.NullableBoolField == true).Should().BeTrue();
+        result.Should().HaveCount(1);
+        result.Single().Id.Should().Be("20");
+        result.All(x => x.NullableBoolField == true).Should().BeTrue();
     }
 
     /// <summary>
@@ -195,9 +189,8 @@ public class BooleanQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.BoolField).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.BoolField).Should().BeTrue();
     }
 }
 

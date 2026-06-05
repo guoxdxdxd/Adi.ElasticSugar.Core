@@ -58,20 +58,18 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .Where(x => x.OrderStatusAsInt == OrderStatus.Pending)
             .ToListAsync();
 
-        result1.IsSuccess().Should().BeTrue();
-        result1.Documents.Should().HaveCount(1);
-        result1.Documents.First().Id.Should().Be("1");
-        result1.Documents.First().OrderStatusAsInt.Should().Be(OrderStatus.Pending);
+        result1.Should().HaveCount(1);
+        result1.First().Id.Should().Be("1");
+        result1.First().OrderStatusAsInt.Should().Be(OrderStatus.Pending);
 
         // 验证使用整数值查询也能正常工作
         var result2 = await Client.Search<EnumFieldTypeTestDocument>("test-enum-field-type-2024-01")
             .Where(x => x.OrderStatusAsInt == (OrderStatus)1) // Processing = 1
             .ToListAsync();
 
-        result2.IsSuccess().Should().BeTrue();
-        result2.Documents.Should().HaveCount(1);
-        result2.Documents.First().Id.Should().Be("2");
-        result2.Documents.First().OrderStatusAsInt.Should().Be(OrderStatus.Processing);
+        result2.Should().HaveCount(1);
+        result2.First().Id.Should().Be("2");
+        result2.First().OrderStatusAsInt.Should().Be(OrderStatus.Processing);
     }
 
     /// <summary>
@@ -117,10 +115,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "10", "12" });
-        result.Documents.All(x => statuses.Contains(x.OrderStatusAsInt)).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.Select(x => x.Id).Should().Contain(new[] { "10", "12" });
+        result.All(x => statuses.Contains(x.OrderStatusAsInt)).Should().BeTrue();
     }
 
     /// <summary>
@@ -171,10 +168,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Processing, Completed, Cancelled
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "21", "22", "23" });
-        result.Documents.All(x => x.OrderStatusAsInt >= OrderStatus.Processing).Should().BeTrue();
+        result.Should().HaveCount(3); // Processing, Completed, Cancelled
+        result.Select(x => x.Id).Should().Contain(new[] { "21", "22", "23" });
+        result.All(x => x.OrderStatusAsInt >= OrderStatus.Processing).Should().BeTrue();
     }
 
     /// <summary>
@@ -218,10 +214,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("31");
-        result.Documents.First().NullableOrderStatusAsInt.Should().Be(OrderStatus.Processing);
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("31");
+        result.First().NullableOrderStatusAsInt.Should().Be(OrderStatus.Processing);
     }
 
     /// <summary>
@@ -259,10 +254,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("40");
-        result.Documents.First().OrderStatusAsKeyword.Should().Be(OrderStatus.Pending);
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("40");
+        result.First().OrderStatusAsKeyword.Should().Be(OrderStatus.Pending);
     }
 
     /// <summary>
@@ -300,10 +294,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("50");
-        result.Documents.First().OrderStatusAsText.Should().Be(OrderStatus.Pending);
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("50");
+        result.First().OrderStatusAsText.Should().Be(OrderStatus.Pending);
     }
 
     /// <summary>
@@ -341,10 +334,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("60");
-        result.Documents.First().OrderStatusDefault.Should().Be(OrderStatus.Pending);
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("60");
+        result.First().OrderStatusDefault.Should().Be(OrderStatus.Pending);
     }
 
     /// <summary>
@@ -422,11 +414,10 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("80");
-        result.Documents.First().OrderStatusAsInt.Should().Be(OrderStatus.Pending);
-        result.Documents.First().TextField.Should().Be("Test80");
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("80");
+        result.First().OrderStatusAsInt.Should().Be(OrderStatus.Pending);
+        result.First().TextField.Should().Be("Test80");
     }
 
     /// <summary>
@@ -463,10 +454,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("90");
-        result.Documents.First().UserRoleAsLong.Should().Be(UserRole.Admin);
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("90");
+        result.First().UserRoleAsLong.Should().Be(UserRole.Admin);
     }
 
     /// <summary>
@@ -510,10 +500,9 @@ public class EnumFieldTypeConfigurationTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "100", "102" });
-        result.Documents.All(x => x.OrderStatusAsInt == OrderStatus.Pending || x.OrderStatusAsInt == OrderStatus.Completed).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.Select(x => x.Id).Should().Contain(new[] { "100", "102" });
+        result.All(x => x.OrderStatusAsInt == OrderStatus.Pending || x.OrderStatusAsInt == OrderStatus.Completed).Should().BeTrue();
     }
 }
 

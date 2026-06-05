@@ -87,10 +87,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = "5"
-        result.Documents.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
+        result.Should().HaveCount(2); // Id = 1 和 Id = "5"
+        result.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
     }
 
     /// <summary>
@@ -113,10 +112,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 1 和 Id = "5"
-        result.Documents.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
+        result.Should().HaveCount(2); // Id = 1 和 Id = "5"
+        result.All(x => x.OrderStatus == OrderStatus.Pending).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "5" });
     }
 
     /// <summary>
@@ -134,10 +132,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().OrderStatus.Should().Be(OrderStatus.Processing);
-        result.Documents.First().Id.Should().Be("2");
+        result.Should().HaveCount(1);
+        result.First().OrderStatus.Should().Be(OrderStatus.Processing);
+        result.First().Id.Should().Be("2");
     }
 
     /// <summary>
@@ -155,10 +152,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = "2", 3, 4
-        result.Documents.All(x => x.OrderStatus != OrderStatus.Pending).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "2", "3", "4" });
+        result.Should().HaveCount(3); // Id = "2", 3, 4
+        result.All(x => x.OrderStatus != OrderStatus.Pending).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "2", "3", "4" });
     }
 
     /// <summary>
@@ -178,10 +174,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = "1", 3, 5 (Pending 和 Completed)
-        result.Documents.All(x => statuses.Contains(x.OrderStatus)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
+        result.Should().HaveCount(3); // Id = "1", 3, 5 (Pending 和 Completed)
+        result.All(x => statuses.Contains(x.OrderStatus)).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
     }
 
     /// <summary>
@@ -200,10 +195,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4); // Id = "1", 2, 3, 5 (Admin 和 User)
-        result.Documents.All(x => roles.Contains(x.UserRole)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "5" });
+        result.Should().HaveCount(4); // Id = "1", 2, 3, 5 (Admin 和 User)
+        result.All(x => roles.Contains(x.UserRole)).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "5" });
     }
 
     /// <summary>
@@ -253,10 +247,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Id = 10 和 Id = "12"
-        result.Documents.All(x => x.NullableOrderStatus == OrderStatus.Processing).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "10", "12" });
+        result.Should().HaveCount(2); // Id = 10 和 Id = "12"
+        result.All(x => x.NullableOrderStatus == OrderStatus.Processing).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "10", "12" });
     }
 
     /// <summary>
@@ -305,16 +298,15 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
         // 查询 NullableOrderStatus != OrderStatus.Processing 应该返回：
         // - InitializeAsync 中插入的 5 条文档（Id = "1", "2", "3", "4", "5"），它们的 NullableOrderStatus 都是 null
         // - 本测试中插入的 Id = "21"（NullableOrderStatus = Completed）
         // - 本测试中插入的 Id = "22"（NullableOrderStatus = null）
         // 总共 7 条记录（排除 Id = "20"，因为它的 NullableOrderStatus = Processing）
         // 注意：在 C# 中，null != OrderStatus.Processing 返回 true，所以 null 值应该被包含在结果中
-        result.Documents.Should().HaveCount(7);
-        result.Documents.All(x => x.NullableOrderStatus != OrderStatus.Processing).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "21", "22" });
+        result.Should().HaveCount(7);
+        result.All(x => x.NullableOrderStatus != OrderStatus.Processing).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "21", "22" });
     }
 
     /// <summary>
@@ -368,15 +360,14 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
         // 查询 NullableOrderStatus 在 [Processing, Completed] 中的记录应该返回：
         // - 本测试中插入的 Id = "30"（NullableOrderStatus = Processing）
         // - 本测试中插入的 Id = "31"（NullableOrderStatus = Completed）
         // 总共 2 条记录（排除 Id = "32"，因为它的 NullableOrderStatus = null，不在列表中）
         // 注意：InitializeAsync 中插入的文档（Id = "1", "2", "3", "4", "5"）的 NullableOrderStatus 都是 null，不在列表中，所以不会被包含
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "30", "31" });
+        result.Should().HaveCount(2);
+        result.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "30", "31" });
     }
 
     /// <summary>
@@ -436,11 +427,10 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "40", "41" });
-        result.Documents.All(x => x.NullableOrderStatus.HasValue).Should().BeTrue();
-        result.Documents.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.Select(x => x.Id).Should().Contain(new[] { "40", "41" });
+        result.All(x => x.NullableOrderStatus.HasValue).Should().BeTrue();
+        result.All(x => statuses.Contains(x.NullableOrderStatus)).Should().BeTrue();
     }
 
     /// <summary>
@@ -489,10 +479,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(7);
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "51", "52" });
-        result.Documents.All(x => x.NullableOrderStatus == null).Should().BeTrue();
+        result.Should().HaveCount(7);
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "2", "3", "4", "5", "51", "52" });
+        result.All(x => x.NullableOrderStatus == null).Should().BeTrue();
     }
 
     /// <summary>
@@ -628,11 +617,10 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Id.Should().Be("1");
-        result.Documents.First().OrderStatus.Should().Be(OrderStatus.Pending);
-        result.Documents.First().TextField.Should().Be("Test1");
+        result.Should().HaveCount(1);
+        result.First().Id.Should().Be("1");
+        result.First().OrderStatus.Should().Be(OrderStatus.Pending);
+        result.First().TextField.Should().Be("Test1");
     }
 
     /// <summary>
@@ -651,10 +639,9 @@ public class EnumQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Id = "1", 3, 5
-        result.Documents.All(x => x.OrderStatus == OrderStatus.Pending || x.OrderStatus == OrderStatus.Completed).Should().BeTrue();
-        result.Documents.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
+        result.Should().HaveCount(3); // Id = "1", 3, 5
+        result.All(x => x.OrderStatus == OrderStatus.Pending || x.OrderStatus == OrderStatus.Completed).Should().BeTrue();
+        result.Select(x => x.Id).Should().Contain(new[] { "1", "3", "5" });
     }
 }
 

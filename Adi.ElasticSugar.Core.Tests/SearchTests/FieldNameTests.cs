@@ -55,9 +55,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextField.Should().Be("Test Value 1");
+        result.Should().HaveCount(1);
+        result.First().TextField.Should().Be("Test Value 1");
     }
 
     /// <summary>
@@ -78,9 +77,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().KeywordField.Should().Be("KEYWORD-1");
+        result.Should().HaveCount(1);
+        result.First().KeywordField.Should().Be("KEYWORD-1");
     }
 
     /// <summary>
@@ -101,9 +99,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().NullableStringField.Should().Be("Nullable Value");
+        result.Should().HaveCount(1);
+        result.First().NullableStringField.Should().Be("Nullable Value");
     }
 
     /// <summary>
@@ -128,10 +125,9 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
         // Contains 查询使用 match 查询，应该能正常工作
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextOnlyField.Should().Contain("Text Only");
+        result.Should().HaveCount(1);
+        result.First().TextOnlyField.Should().Contain("Text Only");
     }
 
     /// <summary>
@@ -151,10 +147,9 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4);
+        result.Should().HaveCount(4);
         // 验证排序是否正确（按字母顺序）
-        var documents = result.Documents.ToList();
+        var documents = result.ToList();
         documents[0].TextField.Should().Be("Test Value 1");
         documents[1].TextField.Should().Be("Test Value 2");
         documents[2].TextField.Should().Be("Test Value 3");
@@ -178,9 +173,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
         // 验证排序是否正确
-        var documents = result.Documents.ToList();
+        var documents = result.ToList();
         // 应该能正常排序（keyword 类型字段支持排序）
         documents.Should().HaveCount(4);
     }
@@ -236,9 +230,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().Address.City.Should().Be("Beijing");
+        result.Should().HaveCount(1);
+        result.First().Address.City.Should().Be("Beijing");
     }
 
     /// <summary>
@@ -258,9 +251,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4);
-        result.Documents.All(x => x.TextField.Contains("Test")).Should().BeTrue();
+        result.Should().HaveCount(4);
+        result.All(x => x.TextField.Contains("Test")).Should().BeTrue();
     }
 
     /// <summary>
@@ -281,9 +273,8 @@ public class FieldNameTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => values.Contains(x.TextField)).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => values.Contains(x.TextField)).Should().BeTrue();
     }
 }
 

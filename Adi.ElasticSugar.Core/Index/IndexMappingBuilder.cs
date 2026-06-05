@@ -76,8 +76,8 @@ internal static class IndexMappingBuilder
             }
             else
             {
-                // 普通集合（如 string[]）
-                BuildSimplePropertyMapping(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
+                // 普通集合（如 List<string>、int[]），按元素类型映射
+                BuildSimplePropertyMapping(propertiesDescriptor, fieldName, elementType ?? propertyType, esFieldAttr);
             }
         }
         else
@@ -177,7 +177,7 @@ internal static class IndexMappingBuilder
             }
             else
             {
-                BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
+                BuildSimplePropertyMappingForNestedDynamic(propertiesDescriptor, fieldName, elementType ?? propertyType, esFieldAttr);
             }
         }
         else
@@ -238,7 +238,7 @@ internal static class IndexMappingBuilder
             }
             else
             {
-                BuildSimplePropertyMappingForNested(propertiesDescriptor, fieldName, propertyType, esFieldAttr);
+                BuildSimplePropertyMappingForNested(propertiesDescriptor, fieldName, elementType ?? propertyType, esFieldAttr);
             }
         }
         else

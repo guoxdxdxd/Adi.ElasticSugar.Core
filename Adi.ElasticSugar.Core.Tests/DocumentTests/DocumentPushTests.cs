@@ -47,6 +47,14 @@ public class DocumentPushTests : TestBase
     {
         // Arrange
         var document = CreateCompleteTestDocument(1);
+        var indexName = document.GetIndexNameFromAttribute();
+        var manager = Client.IndexManager();
+
+        // 确保使用完整字段映射重新创建索引，避免与简化文档的映射冲突
+        if (await manager.IndexExistsAsync(indexName))
+        {
+            await manager.DeleteIndexAsync(indexName);
+        }
 
         // Act
         var response = await Client.PushDocumentAsync(document);
@@ -55,7 +63,6 @@ public class DocumentPushTests : TestBase
         response.IsSuccess().Should().BeTrue();
 
         // 等待索引刷新
-        var indexName = document.GetIndexNameFromAttribute();
         await RefreshIndexAsync(indexName);
 
         // 验证文档内容

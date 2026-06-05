@@ -51,9 +51,8 @@ public class GuidQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.GuidField == _testGuid1).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.GuidField == _testGuid1).Should().BeTrue();
     }
 
     /// <summary>
@@ -71,9 +70,8 @@ public class GuidQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.GuidField != _testGuid1).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.GuidField != _testGuid1).Should().BeTrue();
     }
 
     /// <summary>
@@ -92,9 +90,8 @@ public class GuidQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => guids.Contains(x.GuidField)).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => guids.Contains(x.GuidField)).Should().BeTrue();
     }
 
     /// <summary>
@@ -123,9 +120,8 @@ public class GuidQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableGuidField == testGuid).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableGuidField == testGuid).Should().BeTrue();
     }
 }
 
