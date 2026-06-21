@@ -224,15 +224,15 @@ public static class ExpressionParser
         }
         else if (methodCall.Arguments.Count == 2)
         {
-            // 形式2：collection.Contains(field)
-            var collection = EvaluateExpression(methodCall.Arguments[0]);
+            // 形式2：collection.Contains(field)，含 string[]/T[] 经 MemoryExtensions.Contains 编译的路径
+            var collection = TryEvaluateEnumerableCollection(methodCall.Arguments[0]);
             var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(methodCall.Arguments[1]);
             
-            if (!string.IsNullOrEmpty(fieldPath) && collection is IEnumerable enumerable)
+            if (!string.IsNullOrEmpty(fieldPath) && collection != null)
             {
                 // 对于精确匹配（Terms 查询），需要判断是否使用 keyword
                 var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
-                return BuildTermsQuery<T>(finalFieldPath, nestedPath, enumerable, lastProperty);
+                return BuildTermsQuery<T>(finalFieldPath, nestedPath, collection, lastProperty);
             }
         }
 
@@ -1323,10 +1323,54 @@ public static class ExpressionParser
     }
 
     /// <summary>
+    /// 剥离表达式外层的类型转换节点，便于后续求值或字段解析。
+    /// </summary>
+    private static Expression UnwrapConvertExpression(Expression expression)
+    {
+        while (expression is UnaryExpression unary &&
+               (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+        {
+            expression = unary.Operand;
+        }
+
+        return expression;
+    }
+
+    /// <summary>
+    /// 从表达式中提取可用于 Terms / In 查询的集合常量。
+    /// 实现思路：List 等走闭包字段求值；string[]/T[] 在 C# 中会编译为
+    /// ReadOnlySpan&lt;T&gt;.op_Implicit(array) 再调用 MemoryExtensions.Contains，需先解包再求值。
+    /// </summary>
+    private static IEnumerable? TryEvaluateEnumerableCollection(Expression expression)
+    {
+        expression = UnwrapConvertExpression(expression);
+
+        // 编译器对 array.Contains(field) 生成的第一个参数形态
+        if (expression is MethodCallExpression implicitCall
+            && implicitCall.Method.Name == "op_Implicit"
+            && implicitCall.Method.DeclaringType?.IsGenericType == true
+            && implicitCall.Method.DeclaringType.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>)
+            && implicitCall.Arguments.Count == 1)
+        {
+            expression = UnwrapConvertExpression(implicitCall.Arguments[0]);
+        }
+
+        var value = EvaluateExpression(expression);
+        if (value is IEnumerable enumerable && value is not string)
+        {
+            return enumerable;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// 计算表达式的值（常量或变量）
     /// </summary>
     private static object? EvaluateExpression(Expression expression)
     {
+        expression = UnwrapConvertExpression(expression);
+
         // 处理常量表达式
         if (expression is ConstantExpression constant)
         {
@@ -2716,11 +2760,11 @@ public static class ExpressionParser
             }
             else if (methodCall.Arguments.Count == 2)
             {
-                // 形式2：collection.Contains(field)
-                var collection = EvaluateExpression(methodCall.Arguments[0]);
+                // 形式2：collection.Contains(field)，含 string[]/T[] 经 MemoryExtensions.Contains 编译的路径
+                var collection = TryEvaluateEnumerableCollection(methodCall.Arguments[0]);
                 var (fieldPath, nestedPath, lastProperty) = ExtractFieldFromExpression<T>(methodCall.Arguments[1]);
                 
-                if (!string.IsNullOrEmpty(fieldPath) && collection is IEnumerable enumerable)
+                if (!string.IsNullOrEmpty(fieldPath) && collection != null)
                 {
                     var finalFieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
                     return new QueryCondition<T>
@@ -2728,7 +2772,7 @@ public static class ExpressionParser
                         FieldPath = finalFieldPath,
                         NestedPath = nestedPath,
                         LastProperty = lastProperty,
-                        Value = enumerable,
+                        Value = collection,
                         ConditionType = ConditionType.Terms
                     };
                 }
