@@ -187,6 +187,28 @@ public class StringQueryTests : TestBase
     }
 
     /// <summary>
+    /// 测试 string[] 取反 In 查询（!array.Contains(field)）。
+    /// 编译器会生成 MemoryExtensions.Contains(ReadOnlySpan)，需能正确解析为 must_not terms。
+    /// </summary>
+    [Fact]
+    public async Task Where_KeywordField_NotIn_StringArray_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+        string[] excludedStatuses = ["STATUS-ACTIVE", "STATUS-PENDING"];
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => !excludedStatuses.Contains(x.KeywordField))
+            .ToListAsync();
+
+        // Assert
+        result.IsSuccess().Should().BeTrue();
+        result.Documents.Should().HaveCount(1);
+        result.Documents.Single().KeywordField.Should().Be("STATUS-INACTIVE");
+    }
+
+    /// <summary>
     /// 测试可空字符串字段的查询
     /// </summary>
     [Fact]
