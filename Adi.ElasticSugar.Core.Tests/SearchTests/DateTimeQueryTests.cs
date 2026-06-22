@@ -52,9 +52,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().DateTimeField.Should().BeCloseTo(targetDate, TimeSpan.FromSeconds(1));
+        result.Should().HaveCount(1);
+        result.First().DateTimeField.Should().BeCloseTo(targetDate, TimeSpan.FromSeconds(1));
     }
 
     /// <summary>
@@ -74,9 +73,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.DateTimeField > targetDate).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.DateTimeField > targetDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -96,9 +94,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.DateTimeField >= targetDate).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.DateTimeField >= targetDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -118,9 +115,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.DateTimeField < targetDate).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.DateTimeField < targetDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -140,9 +136,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(4);
-        result.Documents.All(x => x.DateTimeField <= targetDate).Should().BeTrue();
+        result.Should().HaveCount(4);
+        result.All(x => x.DateTimeField <= targetDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -163,9 +158,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.DateTimeField >= startDate && x.DateTimeField <= endDate).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.DateTimeField >= startDate && x.DateTimeField <= endDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -184,9 +178,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().DateTimeOffsetField.Should().BeCloseTo(targetDate, TimeSpan.FromSeconds(1));
+        result.Should().HaveCount(1);
+        result.First().DateTimeOffsetField.Should().BeCloseTo(targetDate, TimeSpan.FromSeconds(1));
     }
 
     /// <summary>
@@ -207,9 +200,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
-        result.Documents.All(x => x.DateTimeOffsetField >= startDate && x.DateTimeOffsetField <= endDate).Should().BeTrue();
+        result.Should().HaveCount(3);
+        result.All(x => x.DateTimeOffsetField >= startDate && x.DateTimeOffsetField <= endDate).Should().BeTrue();
     }
 
     /// <summary>
@@ -238,9 +230,8 @@ public class DateTimeQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2);
-        result.Documents.All(x => x.NullableDateTimeField.HasValue && x.NullableDateTimeField.Value == targetDate).Should().BeTrue();
+        result.Should().HaveCount(2);
+        result.All(x => x.NullableDateTimeField.HasValue && x.NullableDateTimeField.Value == targetDate).Should().BeTrue();
     }
 }
 

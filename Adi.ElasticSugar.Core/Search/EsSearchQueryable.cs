@@ -522,7 +522,12 @@ public class EsSearchQueryable<T>
     /// </summary>
     private static void AddDocuments(List<T> allDocuments, SearchResponse<T> response)
     {
-        if (response?.Documents == null || response.Documents.Count == 0)
+        if (response == null || !response.IsSuccess())
+        {
+            return;
+        }
+
+        if (response.Documents == null || response.Documents.Count == 0)
         {
             return;
         }

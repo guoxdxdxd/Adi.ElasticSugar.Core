@@ -113,9 +113,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var document = result.Documents.First();
+        result.Should().HaveCount(1);
+        var document = result.First();
         document.Address.Should().NotBeNull();
         document.Address.City.Should().Be("Beijing");
         document.Items.Should().HaveCount(2);
@@ -136,11 +135,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
+        result.Should().HaveCount(3);
 
         // 验证每个文档的嵌套数据
-        foreach (var doc in result.Documents)
+        foreach (var doc in result)
         {
             doc.Address.Should().NotBeNull();
             doc.Address.City.Should().NotBeNullOrEmpty();
@@ -164,9 +162,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var document = result.Documents.First();
+        result.Should().HaveCount(1);
+        var document = result.First();
         document.Items.Should().HaveCount(2);
         document.Items[0].ProductName.Should().Be("Product C");
         document.Items[1].ProductName.Should().Be("Product A");
@@ -211,9 +208,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        searchResponse.IsSuccess().Should().BeTrue();
-        searchResponse.Documents.Should().HaveCount(1);
-        var retrieved = searchResponse.Documents.First();
+        searchResponse.Should().HaveCount(1);
+        var retrieved = searchResponse.First();
         retrieved.Address.Should().NotBeNull();
         retrieved.Address.City.Should().Be("Test City");
         retrieved.Items.Should().HaveCount(1);
@@ -236,13 +232,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        if (!result.IsSuccess())
-        {
-            throw new Exception($"查询失败: {result.DebugInformation}");
-        }
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3 都在 Beijing
-        result.Documents.All(x => x.Address.City == "Beijing").Should().BeTrue();
+        result.Should().HaveCount(2); // Order 1 和 Order 3 都在 Beijing
+        result.All(x => x.Address.City == "Beijing").Should().BeTrue();
     }
 
     /// <summary>
@@ -260,9 +251,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档的 Street 都包含 "Street"
-        result.Documents.All(x => x.Address.Street.Contains("Street")).Should().BeTrue();
+        result.Should().HaveCount(3); // 所有文档的 Street 都包含 "Street"
+        result.All(x => x.Address.Street.Contains("Street")).Should().BeTrue();
     }
 
     /// <summary>
@@ -280,9 +270,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档的 Country 都是 "China"
-        result.Documents.All(x => x.Address.Country.StartsWith("China")).Should().BeTrue();
+        result.Should().HaveCount(3); // 所有文档的 Country 都是 "China"
+        result.All(x => x.Address.Country.StartsWith("China")).Should().BeTrue();
     }
 
     /// <summary>
@@ -300,11 +289,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1); // 只有 Order 1 满足条件
-        result.Documents.First().TextField.Should().Be("Order 1");
-        result.Documents.First().Address.City.Should().Be("Beijing");
-        result.Documents.First().Address.ZipCode.Should().Be("100001");
+        result.Should().HaveCount(1); // 只有 Order 1 满足条件
+        result.First().TextField.Should().Be("Order 1");
+        result.First().Address.City.Should().Be("Beijing");
+        result.First().Address.ZipCode.Should().Be("100001");
     }
 
     /// <summary>
@@ -322,10 +310,9 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextField.Should().Be("Order 1");
-        result.Documents.First().Address.City.Should().Be("Beijing");
+        result.Should().HaveCount(1);
+        result.First().TextField.Should().Be("Order 1");
+        result.First().Address.City.Should().Be("Beijing");
     }
 
     /// <summary>
@@ -345,9 +332,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -369,9 +355,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
-        result.Documents.All(x => x.Address.Street.Contains("Street") && x.Address.Country.StartsWith("China")).Should().BeTrue();
+        result.Should().HaveCount(3); // 所有文档都满足条件
+        result.All(x => x.Address.Street.Contains("Street") && x.Address.Country.StartsWith("China")).Should().BeTrue();
     }
 
     /// <summary>
@@ -389,9 +374,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 3
+        result.All(x => 
             x.TextField.Contains("Order") && 
             x.Address.City == "Beijing" && 
             x.Address.ZipCode.StartsWith("100")
@@ -413,9 +397,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
-        result.Documents.All(x => x.Address.City == "Beijing" || x.Address.City == "Shanghai").Should().BeTrue();
+        result.Should().HaveCount(3); // 所有文档都满足条件
+        result.All(x => x.Address.City == "Beijing" || x.Address.City == "Shanghai").Should().BeTrue();
     }
 
     /// <summary>
@@ -433,9 +416,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 2
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") || 
             x.Address.City == "Shanghai"
         ).Should().BeTrue();
@@ -457,9 +439,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
-        result.Documents.All(x => cities.Contains(x.Address.City)).Should().BeTrue();
+        result.Should().HaveCount(3); // 所有文档都满足条件
+        result.All(x => cities.Contains(x.Address.City)).Should().BeTrue();
     }
 
     /// <summary>
@@ -478,9 +459,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 3
+        result.All(x => 
             x.Address.City == "Beijing" && 
             zipCodes.Contains(x.Address.ZipCode)
         ).Should().BeTrue();
@@ -503,9 +483,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
-        result.Documents.All(x => x.Address.City == "Beijing").Should().BeTrue();
+        result.Should().HaveCount(2); // Order 1 和 Order 3
+        result.All(x => x.Address.City == "Beijing").Should().BeTrue();
     }
 
     /// <summary>
@@ -529,9 +508,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -554,9 +532,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 2
+        result.All(x => 
             x.TextField == "Order 1" || 
             (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001")
         ).Should().BeTrue();
@@ -577,9 +554,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
-        result.Documents.All(x => x.Address.ZipCode.EndsWith("001")).Should().BeTrue();
+        result.Should().HaveCount(2); // Order 1 和 Order 2
+        result.All(x => x.Address.ZipCode.EndsWith("001")).Should().BeTrue();
     }
 
     /// <summary>
@@ -597,11 +573,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1); // 只有 Order 1
-        result.Documents.First().TextField.Should().Be("Order 1");
-        result.Documents.First().Address.City.Should().Be("Beijing");
-        result.Documents.First().Address.ZipCode.Should().Be("100001");
+        result.Should().HaveCount(1); // 只有 Order 1
+        result.First().TextField.Should().Be("Order 1");
+        result.First().Address.City.Should().Be("Beijing");
+        result.First().Address.ZipCode.Should().Be("100001");
     }
 
     /// <summary>
@@ -624,9 +599,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.TextField.Contains("Order") && x.Address.City == "Beijing" && x.Address.ZipCode.StartsWith("100")) ||
             (x.TextField == "Order 2" && x.Address.City == "Shanghai")
         ).Should().BeTrue();
@@ -650,11 +624,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.First().TextField.Should().Be("Order 1");
-        result.Documents.First().Address.City.Should().Be("Beijing");
-        result.Documents.First().Address.ZipCode.Should().Be("100001");
+        result.Should().HaveCount(1);
+        result.First().TextField.Should().Be("Order 1");
+        result.First().Address.City.Should().Be("Beijing");
+        result.First().Address.ZipCode.Should().Be("100001");
     }
 
     // ========== 不同嵌套文档的组合查询测试 ==========
@@ -676,8 +649,7 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // 先验证 Address 查询
-        result.IsSuccess().Should().BeTrue();
-        var beijingDocs = result.Documents.Where(d => d.Address.City == "Beijing").ToList();
+        var beijingDocs = result.Where(d => d.Address.City == "Beijing").ToList();
         beijingDocs.Should().HaveCount(2); // Order 1 和 Order 3
 
         // 验证 Order 1 包含 Product A
@@ -703,11 +675,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
+        result.Should().HaveCount(2); // Order 1 和 Order 3
 
         // 验证 Order 1 的 Items 中有 Quantity >= 10 的项
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Items.Any(i => i.Quantity >= 10).Should().BeTrue();
     }
@@ -729,9 +700,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -757,9 +727,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.Country.Should().Be("China");
@@ -786,9 +755,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -812,17 +780,16 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
+        result.Should().HaveCount(2); // Order 1 和 Order 3
         
         // 验证所有结果都满足条件
-        result.Documents.All(x => 
+        result.All(x => 
             x.Address.City == "Beijing" && 
             x.Address.Country == "China"
         ).Should().BeTrue();
 
         // 验证 Order 1 的 Items 数据
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Items.Should().HaveCount(2);
     }
@@ -845,9 +812,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -871,21 +837,20 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
+        result.Should().HaveCount(3); // 所有文档都满足条件
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             x.Address.City == "Beijing" || 
             x.Address.City == "Shanghai"
         ).Should().BeTrue();
 
         // 验证不同文档的 Items 数据
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Items.Should().HaveCount(2);
 
-        var order2 = result.Documents.FirstOrDefault(d => d.TextField == "Order 2");
+        var order2 = result.FirstOrDefault(d => d.TextField == "Order 2");
         order2.Should().NotBeNull();
         order2!.Items.Should().HaveCount(2);
     }
@@ -911,11 +876,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             (x.TextField.Contains("Order") && x.Address.City == "Beijing" && x.Address.ZipCode.StartsWith("100")) ||
             (x.TextField == "Order 2" && x.Address.City == "Shanghai")
         ).Should().BeTrue();
@@ -937,11 +901,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
+        result.Should().HaveCount(3); // 所有文档都满足条件
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             x.Address.Street.Contains("Street") && 
             x.Address.Country.StartsWith("China")
         ).Should().BeTrue();
@@ -964,11 +927,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
+        result.Should().HaveCount(2); // Order 1 和 Order 3
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             cities.Contains(x.Address.City) && 
             zipCodes.Contains(x.Address.ZipCode)
         ).Should().BeTrue();
@@ -989,10 +951,9 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1); // 只有 Order 1
+        result.Should().HaveCount(1); // 只有 Order 1
         
-        var doc = result.Documents.First();
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.ZipCode.Should().Be("100001");
         doc.Address.City.Should().Be("Beijing");
@@ -1023,9 +984,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         doc.TextField.Should().Be("Order 1");
         doc.Address.City.Should().Be("Beijing");
         doc.Address.ZipCode.Should().Be("100001");
@@ -1052,11 +1012,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3);
+        result.Should().HaveCount(3);
 
         // 验证 Order 1 包含 Product A
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Items.Any(i => i.ProductName == "Product A").Should().BeTrue();
     }
@@ -1078,9 +1037,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         
         // 验证 Items 数据
         doc.Items.Should().HaveCount(2);
@@ -1106,11 +1064,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 3
+        result.Should().HaveCount(2); // Order 1 和 Order 3
 
         // 验证 Order 1 的数据
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Address.City.Should().Be("Beijing");
         order1.Items.Should().HaveCount(2);
@@ -1134,9 +1091,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         
         // 验证 Address 数据
         doc.Address.City.Should().Be("Beijing");
@@ -1167,9 +1123,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         
         // 验证普通字段
         doc.TextField.Should().Be("Order 1");
@@ -1200,9 +1155,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        var doc = result.Documents.First();
+        result.Should().HaveCount(1);
+        var doc = result.First();
         
         // 验证普通字段
         doc.TextField.Should().Be("Order 1");
@@ -1233,25 +1187,24 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
+        result.Should().HaveCount(3); // 所有文档都满足条件
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             x.Address.City == "Beijing" || 
             x.Address.City == "Shanghai"
         ).Should().BeTrue();
 
         // 验证不同文档的 Items 数据
-        var order1 = result.Documents.FirstOrDefault(d => d.TextField == "Order 1");
+        var order1 = result.FirstOrDefault(d => d.TextField == "Order 1");
         order1.Should().NotBeNull();
         order1!.Items.Should().HaveCount(2);
 
-        var order2 = result.Documents.FirstOrDefault(d => d.TextField == "Order 2");
+        var order2 = result.FirstOrDefault(d => d.TextField == "Order 2");
         order2.Should().NotBeNull();
         order2!.Items.Should().HaveCount(2);
 
-        var order3 = result.Documents.FirstOrDefault(d => d.TextField == "Order 3");
+        var order3 = result.FirstOrDefault(d => d.TextField == "Order 3");
         order3.Should().NotBeNull();
         order3!.Items.Should().HaveCount(1);
     }
@@ -1282,11 +1235,10 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
         
         // 验证结果
-        result.Documents.All(x => 
+        result.All(x => 
             (x.TextField.Contains("Order") && 
              x.Address.City == "Beijing" && 
              x.Address.ZipCode.StartsWith("100") &&
@@ -1297,7 +1249,7 @@ public class NestedDocumentQueryTests : TestBase
         ).Should().BeTrue();
 
         // 验证每个文档的 Items 数据都正确返回
-        foreach (var doc in result.Documents)
+        foreach (var doc in result)
         {
             doc.Items.Should().NotBeNull();
             doc.Items.Should().NotBeEmpty();
@@ -1328,9 +1280,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 2
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
             (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001")
         ).Should().BeTrue();
@@ -1361,9 +1312,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Country == "China") ||
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
             (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001" && x.Address.Country == "China")
@@ -1392,9 +1342,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // 所有文档都满足条件
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.Street.Contains("Street")) ||
             (x.Address.City == "Shanghai" && x.Address.Country.StartsWith("China"))
         ).Should().BeTrue();
@@ -1422,9 +1371,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             x.Address.City == "Beijing" ||
             x.TextField == "Order 2"
         ).Should().BeTrue();
@@ -1452,9 +1400,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(2); // Order 1 和 Order 2
-        result.Documents.All(x => 
+        result.Should().HaveCount(2); // Order 1 和 Order 2
+        result.All(x => 
             x.TextField == "Order 1" ||
             x.TextField == "Order 2"
         ).Should().BeTrue();
@@ -1485,9 +1432,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100001" && x.Address.Street.Contains("Street")) ||
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100002" && x.Address.Country == "China") ||
             (x.Address.City == "Shanghai" && x.Address.ZipCode.StartsWith("200") && x.Address.Country.StartsWith("China"))
@@ -1512,9 +1458,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // 所有文档都满足条件
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // 所有文档都满足条件
+        result.All(x => 
             x.Address.City == "Beijing" || 
             x.Address.City == "Shanghai"
         ).Should().BeTrue();
@@ -1544,9 +1489,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.Address.City == "Beijing" && zipCodes1.Contains(x.Address.ZipCode)) ||
             (x.Address.City == "Shanghai" && zipCodes2.Contains(x.Address.ZipCode))
         ).Should().BeTrue();
@@ -1577,9 +1521,8 @@ public class NestedDocumentQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("001")) ||
             (x.Address.City == "Beijing" && x.Address.ZipCode.EndsWith("002")) ||
             (x.Address.City == "Shanghai" && x.Address.ZipCode.EndsWith("001"))
@@ -1605,16 +1548,14 @@ public class NestedDocumentQueryTests : TestBase
         // 前两个 OR 组属于 address 嵌套路径，但第三个包含非嵌套条件，不应该合并
         var result = await Client.Search<TestDocument>(indexName)
             .Where(x => 
-                (x.Address.City == "1" && x.Address2.ZipCode == "1") ||
-                (x.Address.City == "2" && x.Address.ZipCode == "2") ||
-                (x.Address.City == "3" && x.Address.ZipCode == "3") ||
+                (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
+                (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001") ||
                 x.TextField == "Order 3")
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(3); // Order 1, Order 2, Order 3
-        result.Documents.All(x => 
+        result.Should().HaveCount(3); // Order 1, Order 2, Order 3
+        result.All(x => 
             (x.Address.City == "Beijing" && x.Address.ZipCode == "100001") ||
             (x.Address.City == "Shanghai" && x.Address.ZipCode == "200001") ||
             x.TextField == "Order 3"
