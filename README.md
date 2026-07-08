@@ -1556,8 +1556,6 @@ await _elasticsearchClient.PushDocumentsAsync(orders, batchSize: 2000);
 
 ## 目标框架
 
-- .NET 8.0
-- .NET 9.0
 - .NET 10.0
 
 ## 依赖项

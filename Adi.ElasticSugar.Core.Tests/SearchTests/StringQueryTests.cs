@@ -203,9 +203,8 @@ public class StringQueryTests : TestBase
             .ToListAsync();
 
         // Assert
-        result.IsSuccess().Should().BeTrue();
-        result.Documents.Should().HaveCount(1);
-        result.Documents.Single().KeywordField.Should().Be("STATUS-INACTIVE");
+        result.Should().HaveCount(1);
+        result.Single().KeywordField.Should().Be("STATUS-INACTIVE");
     }
 
     /// <summary>
