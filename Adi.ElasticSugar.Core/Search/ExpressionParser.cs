@@ -518,9 +518,21 @@ public static class ExpressionParser
         PropertyInfo? collectionProperty)
     {
         // 处理类型转换
-        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        if (expression is UnaryExpression convert && convert.NodeType == ExpressionType.Convert)
         {
-            return ConvertToBoolNodeForAny<T>(unary.Operand, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+            return ConvertToBoolNodeForAny<T>(convert.Operand, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+        }
+
+        // 逻辑非：与顶层 ConvertToBoolNode 一致，支持复合 AND/OR 取反
+        if (expression is UnaryExpression notUnary && notUnary.NodeType == ExpressionType.Not)
+        {
+            return NegateBoolNode(
+                ConvertToBoolNodeForAny<T>(
+                    notUnary.Operand,
+                    parameter,
+                    collectionFieldPath,
+                    collectionNestedPath,
+                    collectionProperty));
         }
 
         if (expression is BinaryExpression binary)
@@ -2080,9 +2092,15 @@ public static class ExpressionParser
     private static BoolNode<T>? ConvertToBoolNode<T>(Expression expression)
     {
         // 处理类型转换，保证解析一致性
-        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        if (expression is UnaryExpression convert && convert.NodeType == ExpressionType.Convert)
         {
-            return ConvertToBoolNode<T>(unary.Operand);
+            return ConvertToBoolNode<T>(convert.Operand);
+        }
+
+        // 逻辑非：支持 !(原子) 与 !(A && B && C) / !(A || B)
+        if (expression is UnaryExpression notUnary && notUnary.NodeType == ExpressionType.Not)
+        {
+            return NegateBoolNode(ConvertToBoolNode<T>(notUnary.Operand));
         }
 
         // 处理二元表达式
@@ -2109,6 +2127,88 @@ public static class ExpressionParser
 
         // 处理其他表达式类型（方法调用、成员访问等）作为原子条件
         return CreateAtomicBoolNode<T>(expression);
+    }
+
+    /// <summary>
+    /// 对布尔树取反（德摩根展开）。
+    /// <list type="bullet">
+    /// <item><c>!(A &amp;&amp; B)</c> → <c>!A || !B</c></item>
+    /// <item><c>!(A || B)</c> → <c>!A &amp;&amp; !B</c></item>
+    /// <item>原子条件 → 翻转 <see cref="QueryCondition{T}.IsNegated"/></item>
+    /// </list>
+    /// </summary>
+    private static BoolNode<T>? NegateBoolNode<T>(BoolNode<T>? node)
+    {
+        if (node == null)
+        {
+            return null;
+        }
+
+        return node switch
+        {
+            AtomicBoolNode<T> atomic => NegateAtomicBoolNode(atomic),
+            AndBoolNode<T> andNode => NegateAndBoolNode(andNode),
+            OrBoolNode<T> orNode => NegateOrBoolNode(orNode),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// 原子条件取反：克隆条件并翻转 IsNegated，避免污染原节点。
+    /// </summary>
+    private static AtomicBoolNode<T> NegateAtomicBoolNode<T>(AtomicBoolNode<T> atomic)
+    {
+        var cloned = CloneQueryCondition(atomic.Condition);
+        cloned.IsNegated = !cloned.IsNegated;
+        return new AtomicBoolNode<T>(cloned);
+    }
+
+    /// <summary>
+    /// AND 节点取反：!(A &amp;&amp; B &amp;&amp; C) = !A || !B || !C
+    /// </summary>
+    private static BoolNode<T>? NegateAndBoolNode<T>(AndBoolNode<T> andNode)
+    {
+        BoolNode<T>? result = null;
+        foreach (var child in andNode.Children)
+        {
+            result = MergeOrNodes(result, NegateBoolNode(child));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// OR 节点取反：!(A || B || C) = !A &amp;&amp; !B &amp;&amp; !C
+    /// </summary>
+    private static BoolNode<T>? NegateOrBoolNode<T>(OrBoolNode<T> orNode)
+    {
+        BoolNode<T>? result = null;
+        foreach (var child in orNode.Children)
+        {
+            result = MergeAndNodes(result, NegateBoolNode(child));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 克隆查询条件，供取反时修改 IsNegated 使用。
+    /// </summary>
+    private static QueryCondition<T> CloneQueryCondition<T>(QueryCondition<T> source)
+    {
+        return new QueryCondition<T>
+        {
+            FieldPath = source.FieldPath,
+            NestedPath = source.NestedPath,
+            LastProperty = source.LastProperty,
+            ComparisonType = source.ComparisonType,
+            Value = source.Value,
+            ConditionType = source.ConditionType,
+            IsNegated = source.IsNegated,
+            WildcardPattern = source.WildcardPattern,
+            MatchText = source.MatchText,
+            CustomQueryAction = source.CustomQueryAction
+        };
     }
 
     /// <summary>
@@ -2501,9 +2601,9 @@ public static class ExpressionParser
     private static DnfExpression<T>? ConvertToDnf<T>(Expression expression)
     {
         // 处理类型转换
-        if (expression is UnaryExpression unary && unary.NodeType == ExpressionType.Convert)
+        if (expression is UnaryExpression convert && convert.NodeType == ExpressionType.Convert)
         {
-            return ConvertToDnf<T>(unary.Operand);
+            return ConvertToDnf<T>(convert.Operand);
         }
 
         // 处理二元表达式
@@ -2528,7 +2628,7 @@ public static class ExpressionParser
             };
         }
 
-        // 处理其他表达式类型（方法调用、成员访问等）作为原子条件
+        // 处理其他表达式类型（方法调用、成员访问、逻辑非等）作为原子条件
         return CreateAtomicDnf<T>(expression);
     }
 
