@@ -966,6 +966,12 @@ public static class ExpressionParser
             return esFieldAttr.IsNested.Value;
         }
 
+        // FieldType = "nested" 与显式 IsNested 等价（如 DetailEsDto）
+        if (string.Equals(esFieldAttr?.FieldType, "nested", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         // 与 IndexMappingBuilder 的逻辑保持一致：
         // 1) 如果字段本身是嵌套类型，视为 nested
         // 2) 如果是集合且元素类型为嵌套类型，视为 nested
@@ -1477,6 +1483,15 @@ public static class ExpressionParser
                 break;
 
             case ComparisonType.NotEquals:
+                // 非可空 bool：x != true / x != false 与 x == false / x == true 等价，
+                // 生成 term false/true，对齐旧版 Equals 语义（避免 must_not term true）。
+                // 可空 bool? 保留 must_not，以便 != true 仍能命中 null（字段缺失）。
+                if (value is bool boolValue && IsNonNullableBooleanProperty(lastProperty))
+                {
+                    ApplyEqualsQuery(query, fieldPath, !boolValue, lastProperty);
+                    break;
+                }
+
                 query.Bool(b => b.MustNot(mn => ApplyEqualsQuery(mn, fieldPath, value, lastProperty)));
                 break;
 
@@ -1486,6 +1501,52 @@ public static class ExpressionParser
             case ComparisonType.LessThanOrEqual:
                 ApplyRangeQuery(query, fieldPath, comparisonType, value, lastProperty);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// 属性是否为非可空 bool（不含 bool?）。
+    /// </summary>
+    private static bool IsNonNullableBooleanProperty(PropertyInfo? property)
+    {
+        return property?.PropertyType == typeof(bool);
+    }
+
+    /// <summary>
+    /// 将非可空 bool 的取反/不等规范化为 Equals(term true/false)。
+    /// <para>
+    /// 背景：<c>!x.BoolField</c> 原先被解析为 must_not + term true，与旧版
+    /// <c>x.BoolField == false</c>（term false）在字段缺失时语义不同。
+    /// </para>
+    /// </summary>
+    private static void NormalizeBooleanComparisonCondition<T>(QueryCondition<T> condition)
+    {
+        if (condition.ConditionType != ConditionType.Comparison)
+        {
+            return;
+        }
+
+        if (condition.Value is not bool boolValue)
+        {
+            return;
+        }
+
+        if (!IsNonNullableBooleanProperty(condition.LastProperty))
+        {
+            return;
+        }
+
+        if (condition.ComparisonType == ComparisonType.NotEquals)
+        {
+            condition.ComparisonType = ComparisonType.Equals;
+            condition.Value = !boolValue;
+            boolValue = !boolValue;
+        }
+
+        if (condition.IsNegated && condition.ComparisonType == ComparisonType.Equals)
+        {
+            condition.IsNegated = false;
+            condition.Value = !boolValue;
         }
     }
 
@@ -3860,6 +3921,9 @@ public static class ExpressionParser
     /// </summary>
     private static Action<QueryDescriptor<T>> BuildConditionQuery<T>(QueryCondition<T> condition)
     {
+        // 非可空 bool 取反/不等先规范为 term true/false，再生成 DSL
+        NormalizeBooleanComparisonCondition(condition);
+
         if (!string.IsNullOrEmpty(condition.NestedPath))
         {
             // 嵌套查询
@@ -3883,11 +3947,36 @@ public static class ExpressionParser
                 }
             };
         }
-        else
+
+        // nested 根字段自身的 != null / == null：
+        // ExtractField 对单段路径不会填 NestedPath，若仍生成根级 exists，
+        // 对 nested 映射无效（子文档不在父 Lucene 文档上），会导致 0 命中。
+        // 应翻译为 nested(path) + match_all / must_not nested。
+        if (condition.ConditionType == ConditionType.Exists
+            && IsNestedCollectionProperty(condition.LastProperty))
         {
-            // 普通查询
-            return query => ApplyConditionToQueryWithNegation(query, condition.FieldPath, condition);
+            var nestedRootPath = condition.FieldPath;
+            return query =>
+            {
+                if (condition.IsNegated)
+                {
+                    query.Bool(b => b.MustNot(mn => mn.Nested(n => n
+                        .Path(nestedRootPath)
+                        .Query(nq => nq.MatchAll(new MatchAllQuery()))
+                    )));
+                }
+                else
+                {
+                    query.Nested(n => n
+                        .Path(nestedRootPath)
+                        .Query(nq => nq.MatchAll(new MatchAllQuery()))
+                    );
+                }
+            };
         }
+
+        // 普通查询
+        return query => ApplyConditionToQueryWithNegation(query, condition.FieldPath, condition);
     }
 
     /// <summary>

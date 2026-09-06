@@ -111,6 +111,25 @@ public class BooleanQueryTests : TestBase
     }
 
     /// <summary>
+    /// 测试 bool 字段的逻辑非简写（!x.BoolField），应与 == false 结果一致
+    /// </summary>
+    [Fact]
+    public async Task Where_BoolField_LogicalNot_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var indexName = "test-documents-2024-01";
+
+        // Act
+        var result = await Client.Search<TestDocument>(indexName)
+            .Where(x => !x.BoolField)
+            .ToListAsync();
+
+        // Assert
+        result.Should().HaveCount(2);
+        result.All(x => !x.BoolField).Should().BeTrue();
+    }
+
+    /// <summary>
     /// 测试可空 bool 字段的查询
     /// </summary>
     [Fact]
