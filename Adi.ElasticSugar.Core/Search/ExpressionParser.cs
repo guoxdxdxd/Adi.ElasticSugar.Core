@@ -504,6 +504,31 @@ public static class ExpressionParser
             };
         }
 
+        // 4) 方法调用（Contains 等）：items.Any(x => x.Name.Contains(kw)) / list.Contains(x.Code)
+        if (body is MethodCallExpression)
+        {
+            var methodCondition = ParseAnyAtomicCondition<T>(
+                body, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+            if (methodCondition == null)
+            {
+                return null;
+            }
+
+            methodCondition.IsNegated = isNegated ^ methodCondition.IsNegated;
+
+            // 单独 MethodCall 谓词需带 NestedPath，供 BuildConditionQuery 包一层 nested；
+            // AndAlso 复合路径里原子条件 NestedPath 为空，由 BuildQueryRelativeToNested 处理。
+            if (IsNestedCollectionProperty(collectionProperty) &&
+                string.IsNullOrEmpty(methodCondition.NestedPath))
+            {
+                methodCondition.NestedPath = string.IsNullOrEmpty(collectionNestedPath)
+                    ? collectionFieldPath
+                    : $"{collectionNestedPath}.{collectionFieldPath}";
+            }
+
+            return methodCondition;
+        }
+
         return null;
     }
 
@@ -804,7 +829,161 @@ public static class ExpressionParser
             };
         }
 
+        // 方法调用：field.Contains(value) / collection.Contains(field)
+        if (expression is MethodCallExpression methodCall)
+        {
+            return ParseAnyContainsCondition<T>(
+                methodCall, parameter, collectionFieldPath, collectionNestedPath, collectionProperty);
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// 解析 Any 谓词内的 Contains：相对元素参数解析字段路径，供 nested 相对查询或顶层 NestedPath 使用。
+    /// </summary>
+    private static QueryCondition<T>? ParseAnyContainsCondition<T>(
+        MethodCallExpression methodCall,
+        ParameterExpression parameter,
+        string collectionFieldPath,
+        string? collectionNestedPath,
+        PropertyInfo? collectionProperty)
+    {
+        if (methodCall.Method.Name != "Contains")
+        {
+            return null;
+        }
+
+        var collectionIsNested = IsNestedCollectionProperty(collectionProperty);
+
+        string? innerFieldPath;
+        PropertyInfo? innerProperty;
+        bool isElementSelf;
+        object? value;
+        ConditionType conditionType;
+        string? wildcardPattern = null;
+        string? matchText = null;
+
+        if (methodCall.Object != null)
+        {
+            // 形式1：x.Field.Contains(value)
+            if (!TryExtractAnyFieldFromExpression(
+                    methodCall.Object, parameter, out innerFieldPath, out innerProperty, out isElementSelf))
+            {
+                return null;
+            }
+
+            value = EvaluateExpression(methodCall.Arguments[0]);
+            if (value == null)
+            {
+                return null;
+            }
+
+            if (value is IEnumerable enumerable && value is not string)
+            {
+                conditionType = ConditionType.Terms;
+            }
+            else
+            {
+                var probePath = innerFieldPath ?? string.Empty;
+                var exactMatchFieldPath = GetFieldPathForExactMatch(probePath, innerProperty);
+                var useKeywordSubField = !string.Equals(exactMatchFieldPath, probePath, StringComparison.Ordinal);
+                if (useKeywordSubField || IsKeywordField(innerProperty))
+                {
+                    innerFieldPath = exactMatchFieldPath;
+                    conditionType = ConditionType.Wildcard;
+                    wildcardPattern = $"*{value}*";
+                }
+                else
+                {
+                    conditionType = ConditionType.Match;
+                    matchText = value.ToString();
+                }
+            }
+        }
+        else if (methodCall.Arguments.Count == 2)
+        {
+            // 形式2：collection.Contains(x.Field)
+            value = TryEvaluateEnumerableCollection(methodCall.Arguments[0]);
+            if (value == null)
+            {
+                return null;
+            }
+
+            if (!TryExtractAnyFieldFromExpression(
+                    methodCall.Arguments[1], parameter, out innerFieldPath, out innerProperty, out isElementSelf))
+            {
+                return null;
+            }
+
+            conditionType = ConditionType.Terms;
+        }
+        else
+        {
+            return null;
+        }
+
+        if (collectionIsNested && isElementSelf)
+        {
+            return null;
+        }
+
+        string? fieldPath;
+        string? nestedPath;
+        var lastProperty = isElementSelf ? collectionProperty : innerProperty;
+
+        if (collectionIsNested)
+        {
+            if (string.IsNullOrEmpty(innerFieldPath))
+            {
+                return null;
+            }
+
+            // AndAlso 复合路径会用 BuildQueryRelativeToNested 再拼 nestedPath；此处保持相对字段。
+            fieldPath = conditionType == ConditionType.Terms
+                ? GetFieldPathForExactMatch(innerFieldPath, lastProperty)
+                : innerFieldPath;
+            nestedPath = null;
+        }
+        else
+        {
+            if (isElementSelf)
+            {
+                fieldPath = collectionFieldPath;
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(innerFieldPath))
+                {
+                    return null;
+                }
+
+                fieldPath = $"{collectionFieldPath}.{innerFieldPath}";
+            }
+
+            if (conditionType == ConditionType.Terms || conditionType == ConditionType.Wildcard)
+            {
+                fieldPath = GetFieldPathForExactMatch(fieldPath, lastProperty);
+            }
+
+            nestedPath = collectionNestedPath;
+        }
+
+        if (string.IsNullOrEmpty(fieldPath))
+        {
+            return null;
+        }
+
+        return new QueryCondition<T>
+        {
+            FieldPath = fieldPath,
+            NestedPath = nestedPath,
+            LastProperty = lastProperty,
+            Value = value,
+            ConditionType = conditionType,
+            WildcardPattern = wildcardPattern,
+            MatchText = matchText
+        };
     }
 
     /// <summary>
