@@ -1,6 +1,8 @@
 using System.Linq.Expressions;
+using System.Text;
 using Adi.ElasticSugar.Core.Search;
 using Adi.ElasticSugar.Core.Tests.Models;
+using Elastic.Clients.Elasticsearch;
 using FluentAssertions;
 using Xunit;
 
@@ -69,5 +71,77 @@ public class CompoundNotExpressionTests
         var action = ExpressionParser.ParseExpression(expression);
 
         action.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// !x.BoolField 应生成 term false（与 == false 一致），而不是 must_not term true。
+    /// </summary>
+    [Fact]
+    public void ParseExpression_NotOfAtomicBool_ShouldSerializeAsTermFalse()
+    {
+        Expression<Func<TestDocument, bool>> expression = x => !x.BoolField;
+
+        var json = SerializeQuery(expression);
+
+        json.Should().Contain("\"boolField\"");
+        json.Should().Contain("\"value\":false");
+        json.Should().NotContain("must_not");
+        json.Should().NotContain("\"value\":true");
+    }
+
+    /// <summary>
+    /// x.BoolField != true 对非可空 bool 也应生成 term false。
+    /// </summary>
+    [Fact]
+    public void ParseExpression_BoolNotEqualsTrue_ShouldSerializeAsTermFalse()
+    {
+        Expression<Func<TestDocument, bool>> expression = x => x.BoolField != true;
+
+        var json = SerializeQuery(expression);
+
+        json.Should().Contain("\"value\":false");
+        json.Should().NotContain("must_not");
+    }
+
+    /// <summary>
+    /// x.BoolField == false 保持 term false（对照基线）。
+    /// </summary>
+    [Fact]
+    public void ParseExpression_BoolEqualsFalse_ShouldSerializeAsTermFalse()
+    {
+        Expression<Func<TestDocument, bool>> expression = x => x.BoolField == false;
+
+        var json = SerializeQuery(expression);
+
+        json.Should().Contain("\"value\":false");
+        json.Should().NotContain("must_not");
+    }
+
+    /// <summary>
+    /// 可空 bool? != true 仍用 must_not，以保留命中 null/缺字段的语义。
+    /// </summary>
+    [Fact]
+    public void ParseExpression_NullableBoolNotEqualsTrue_ShouldKeepMustNot()
+    {
+        Expression<Func<TestDocument, bool>> expression = x => x.NullableBoolField != true;
+
+        var json = SerializeQuery(expression);
+
+        json.Should().Contain("must_not");
+        json.Should().Contain("\"value\":true");
+    }
+
+    private static string SerializeQuery(Expression<Func<TestDocument, bool>> expression)
+    {
+        var action = ExpressionParser.ParseExpression(expression);
+        action.Should().NotBeNull();
+
+        var client = new ElasticsearchClient(new Uri("http://localhost:9200"));
+        var descriptor = new SearchRequestDescriptor<TestDocument>();
+        descriptor.Index("test").Query(action!);
+
+        using var stream = new MemoryStream();
+        client.RequestResponseSerializer.Serialize(descriptor, stream);
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 }
