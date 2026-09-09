@@ -1130,7 +1130,8 @@ public static class ExpressionParser
     }
 
     /// <summary>
-    /// 判断集合字段是否配置为 nested
+    /// 判断集合字段是否应按 nested query 查询。
+    /// 优先级：显式 IsNested → FieldType(nested/object) → 类型推断。
     /// </summary>
     private static bool IsNestedCollectionProperty(PropertyInfo? propertyInfo)
     {
@@ -1140,15 +1141,21 @@ public static class ExpressionParser
         }
 
         var esFieldAttr = propertyInfo.GetCustomAttribute<EsFieldAttribute>();
-        if (esFieldAttr?.IsNested != null)
+        if (esFieldAttr is { IsNestedConfigured: true })
         {
-            return esFieldAttr.IsNested.Value;
+            return esFieldAttr.IsNested;
         }
 
-        // FieldType = "nested" 与显式 IsNested 等价（如 DetailEsDto）
+        // FieldType = "nested" 与显式 IsNested=true 等价（如 DetailEsDto）
         if (string.Equals(esFieldAttr?.FieldType, "nested", StringComparison.OrdinalIgnoreCase))
         {
             return true;
+        }
+
+        // FieldType = "object" 表示普通对象/对象数组，生成扁平字段路径（如 srmEsDtos.purchaseOrder）
+        if (string.Equals(esFieldAttr?.FieldType, "object", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
         }
 
         // 与 IndexMappingBuilder 的逻辑保持一致：
@@ -1470,10 +1477,25 @@ public static class ExpressionParser
             var firstProperty = properties[0];
             var firstPropertyType = firstProperty.PropertyType;
             
-            // 检查第一个属性是否是嵌套类型
-            // 首先检查 EsFieldAttribute.IsNested 特性
+            // 检查第一个属性是否是嵌套类型（与 IsNestedCollectionProperty 规则一致）
             var esFieldAttr = firstProperty.GetCustomAttribute<EsFieldAttribute>();
-            bool isNested = esFieldAttr?.IsNested ?? IsNestedType(firstPropertyType);
+            bool isNested;
+            if (esFieldAttr is { IsNestedConfigured: true })
+            {
+                isNested = esFieldAttr.IsNested;
+            }
+            else if (string.Equals(esFieldAttr?.FieldType, "nested", StringComparison.OrdinalIgnoreCase))
+            {
+                isNested = true;
+            }
+            else if (string.Equals(esFieldAttr?.FieldType, "object", StringComparison.OrdinalIgnoreCase))
+            {
+                isNested = false;
+            }
+            else
+            {
+                isNested = IsNestedType(firstPropertyType);
+            }
             
             if (isNested)
             {

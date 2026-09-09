@@ -57,8 +57,24 @@ internal static class IndexMappingBuilder
         // 使用 FieldNameHelper 获取字段的字段名称（如果配置了 FieldName，则使用配置的名称）
         var fieldName = FieldNameHelper.GetIndexFieldName(property, esFieldAttr);
 
-        // 判断是否为嵌套文档
-        bool isNested = esFieldAttr?.IsNested ?? IsNestedType(propertyType);
+        // 判断是否为嵌套文档：显式 IsNested / FieldType → 类型推断
+        bool isNested;
+        if (esFieldAttr is { IsNestedConfigured: true })
+        {
+            isNested = esFieldAttr.IsNested;
+        }
+        else if (string.Equals(esFieldAttr?.FieldType, "nested", StringComparison.OrdinalIgnoreCase))
+        {
+            isNested = true;
+        }
+        else if (string.Equals(esFieldAttr?.FieldType, "object", StringComparison.OrdinalIgnoreCase))
+        {
+            isNested = false;
+        }
+        else
+        {
+            isNested = IsNestedType(propertyType);
+        }
 
         if (isNested)
         {
@@ -69,14 +85,19 @@ internal static class IndexMappingBuilder
         {
             // 集合类型
             var elementType = GetCollectionElementType(propertyType);
-            if (elementType != null && IsNestedType(elementType))
+            // 复杂元素默认 nested；FieldType=object / IsNested=false 时按 object 数组处理
+            var elementAsNested = elementType != null
+                && IsNestedType(elementType)
+                && !(esFieldAttr is { IsNestedConfigured: true, IsNested: false })
+                && !string.Equals(esFieldAttr?.FieldType, "object", StringComparison.OrdinalIgnoreCase);
+            if (elementAsNested)
             {
                 // 嵌套文档集合
-                BuildNestedMapping(propertiesDescriptor, fieldName, elementType, esFieldAttr);
+                BuildNestedMapping(propertiesDescriptor, fieldName, elementType!, esFieldAttr);
             }
             else
             {
-                // 普通集合（如 List<string>、int[]），按元素类型映射
+                // 普通集合（如 List<string>、int[]）或显式 object 数组
                 BuildSimplePropertyMapping(propertiesDescriptor, fieldName, elementType ?? propertyType, esFieldAttr);
             }
         }
