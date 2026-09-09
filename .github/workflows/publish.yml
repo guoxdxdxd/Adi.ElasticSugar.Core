@@ -33,9 +33,7 @@ jobs:
       - name: Build
         run: dotnet build Adi.ElasticSugar.Core.sln -c Release --no-restore
 
-      - name: Test
-        run: dotnet test Adi.ElasticSugar.Core.Tests/Adi.ElasticSugar.Core.Tests.csproj -c Release --no-build --verbosity normal
-
+      # 集成测试依赖本机 Elasticsearch；发布流水线不做 ES 集成验证。
       - name: Pack
         run: |
           dotnet pack Adi.ElasticSugar.Core/Adi.ElasticSugar.Core.csproj \
